@@ -353,6 +353,7 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 		"OKActions":               a.OKActions,
 		"InsufficientDataActions": a.InsufficientDataActions,
 		"ActionConfiguration":     a.ActionConfiguration,
+		"Metrics":                 a.Metrics,
 		"StateValue":              state,
 		"StateReason":             reason,
 		"StateUpdatedTimestamp":   float64(now.Unix()),
@@ -361,6 +362,9 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 		entry["ExtendedStatistic"] = a.ExtendedStatistic
 	} else if a.Statistic != "" {
 		entry["Statistic"] = a.Statistic
+	}
+	if a.ThresholdMetricId != "" {
+		entry["ThresholdMetricId"] = a.ThresholdMetricId
 	}
 	return entry
 }

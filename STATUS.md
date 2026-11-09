@@ -98,8 +98,8 @@ Shared mechanisms, one package each:
   per-protocol retry policy and the subscription's dead-letter queue; Azure
   Event Grid subscriptions; Pub/Sub topic fan-out and Eventarc Cloud Audit
   Logs triggers, both into queues that own their retries.
-- **`cron` and `delivery`**: Cloud Scheduler, EventBridge Scheduler and
-  Container Apps scheduled jobs; Cloud Tasks HTTP tasks go out through
+- **`cron` and `delivery`**: Cloud Scheduler, EventBridge Scheduler,
+  CloudWatch Logs scheduled queries and Container Apps scheduled jobs; Cloud Tasks HTTP tasks go out through
   `delivery.Post`, keeping their attempts in the queue; CloudWatch Logs
   subscription filters and the account-level subscription filter policy
   forward matching events to Amazon Kinesis Data Streams, Amazon Data

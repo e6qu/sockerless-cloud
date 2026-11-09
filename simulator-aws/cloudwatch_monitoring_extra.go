@@ -1,11 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"image"
-	"image/color"
-	"image/png"
 	"net/http"
 	"sort"
 	"time"
@@ -123,8 +119,16 @@ func cwPutManagedRules(rules []cwManagedRuleInput) []map[string]any {
 			continue
 		}
 		ruleName := "ManagedRule-" + mr.templateName + "-" + mr.resourceARN
-		cwPutInsightRule(ruleName, "ENABLED", cwManagedRuleDefinition(mr.templateName, mr.resourceARN),
-			false, tagsToKV(mr.tags))
+		if err := cwPutInsightRule(ruleName, "ENABLED", cwManagedRuleDefinition(mr.templateName, mr.resourceARN),
+			false, tagsToKV(mr.tags)); err != nil {
+			failures = append(failures, map[string]any{
+				"FailureResource":    mr.resourceARN,
+				"ExceptionType":      "InvalidParameterValueException",
+				"FailureCode":        "InvalidParameterValue",
+				"FailureDescription": err.Error(),
+			})
+			continue
+		}
 		cwManagedRules.Put(mr.resourceARN+"\x00"+mr.templateName, CWManagedRule{
 			TemplateName: mr.templateName,
 			ResourceARN:  mr.resourceARN,
@@ -161,56 +165,6 @@ func cwManagedRuleState(ruleName string) string {
 		return ir.State
 	}
 	return "ENABLED"
-}
-
-// The report's per-period datapoints are empty.
-func cwInsightReportBuckets(startUnix, endUnix, period int64) []int64 {
-	if period <= 0 {
-		period = 60
-	}
-	out := make([]int64, 0)
-	if startUnix > 0 && endUnix > startUnix {
-		for t := startUnix; t < endUnix; t += period {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// Defaults to CloudWatch's 600x400.
-func cwRenderWidgetPNG(widget map[string]any) []byte {
-	width, height := 600, 400
-	if v, ok := widget["width"].(float64); ok && v > 0 {
-		width = int(v)
-	}
-	if v, ok := widget["height"].(float64); ok && v > 0 {
-		height = int(v)
-	}
-	if width > 2000 {
-		width = 2000
-	}
-	if height > 2000 {
-		height = 2000
-	}
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	bg := color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
-	axis := color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff}
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			img.Set(x, y, bg)
-		}
-	}
-	for x := 0; x < width; x++ {
-		img.Set(x, height-1, axis)
-		img.Set(x, 0, axis)
-	}
-	for y := 0; y < height; y++ {
-		img.Set(0, y, axis)
-		img.Set(width-1, y, axis)
-	}
-	var buf bytes.Buffer
-	_ = png.Encode(&buf, img)
-	return buf.Bytes()
 }
 
 func handleCWJSONGetDataset(w http.ResponseWriter, r *http.Request) {
@@ -329,11 +283,13 @@ func handleCWJSONListManagedInsightRules(w http.ResponseWriter, r *http.Request)
 
 func handleCWJSONGetInsightRuleReport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RuleName  string   `json:"RuleName"`
-		StartTime float64  `json:"StartTime"`
-		EndTime   float64  `json:"EndTime"`
-		Period    int64    `json:"Period"`
-		Metrics   []string `json:"Metrics"`
+		RuleName            string   `json:"RuleName"`
+		StartTime           float64  `json:"StartTime"`
+		EndTime             float64  `json:"EndTime"`
+		Period              int32    `json:"Period"`
+		MaxContributorCount int      `json:"MaxContributorCount"`
+		Metrics             []string `json:"Metrics"`
+		OrderBy             string   `json:"OrderBy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
@@ -343,35 +299,17 @@ func handleCWJSONGetInsightRuleReport(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "MissingParameter", "The parameter RuleName is required.", http.StatusBadRequest)
 		return
 	}
-	if _, ok := cwInsightRules.Get(req.RuleName); !ok {
+	ir, ok := cwInsightRules.Get(req.RuleName)
+	if !ok {
 		AWSError(w, "ResourceNotFoundException", "The specified rule does not exist.", http.StatusNotFound)
 		return
 	}
-	buckets := cwInsightReportBuckets(int64(req.StartTime), int64(req.EndTime), req.Period)
-	datapoints := make([]map[string]any, 0, len(buckets))
-	for _, t := range buckets {
-		dp := map[string]any{
-			"Timestamp":           t,
-			"UniqueContributors":  float64(0),
-			"MaxContributorValue": float64(0),
-			"SampleCount":         float64(0),
-		}
-		for _, m := range req.Metrics {
-			switch m {
-			case "Average", "Sum", "Minimum", "Maximum":
-				dp[m] = float64(0)
-			}
-		}
-		datapoints = append(datapoints, dp)
+	rep, err := cwBuildInsightReport(ir, int64(req.StartTime), int64(req.EndTime), req.Period, req.MaxContributorCount, req.OrderBy, req.Metrics)
+	if err != nil {
+		AWSError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"KeyLabels":              []string{},
-		"AggregationStatistic":   "Sum",
-		"AggregateValue":         float64(0),
-		"ApproximateUniqueCount": int64(0),
-		"Contributors":           []map[string]any{},
-		"MetricDatapoints":       datapoints,
-	})
+	sim.WriteJSON(w, http.StatusOK, cwInsightReportJSON(rep))
 }
 
 func handleCWJSONDescribeAlarmContributors(w http.ResponseWriter, r *http.Request) {
@@ -406,13 +344,17 @@ func handleCWJSONGetMetricWidgetImage(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "MissingParameter", "The parameter MetricWidget is required.", http.StatusBadRequest)
 		return
 	}
-	var widget map[string]any
-	if err := json.Unmarshal([]byte(req.MetricWidget), &widget); err != nil {
-		AWSError(w, "InvalidParameterValue", "MetricWidget is not valid JSON.", http.StatusBadRequest)
+	if req.OutputFormat != "" && req.OutputFormat != "png" {
+		AWSError(w, "InvalidParameterValue", "The OutputFormat must be png.", http.StatusBadRequest)
+		return
+	}
+	image, err := cwRenderMetricWidget(req.MetricWidget, time.Now())
+	if err != nil {
+		AWSError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 		return
 	}
 	// The awsJson encoder base64-encodes a []byte, the blob wire form.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"MetricWidgetImage": cwRenderWidgetPNG(widget)})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"MetricWidgetImage": image})
 }
 
 func handleCWCBORGetDataset(w http.ResponseWriter, r *http.Request) {
@@ -526,11 +468,13 @@ func handleCWCBORListManagedInsightRules(w http.ResponseWriter, r *http.Request)
 
 func handleCWCBORGetInsightRuleReport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RuleName  string    `cbor:"RuleName"`
-		StartTime time.Time `cbor:"StartTime"`
-		EndTime   time.Time `cbor:"EndTime"`
-		Period    int64     `cbor:"Period"`
-		Metrics   []string  `cbor:"Metrics"`
+		RuleName            string    `cbor:"RuleName"`
+		StartTime           time.Time `cbor:"StartTime"`
+		EndTime             time.Time `cbor:"EndTime"`
+		Period              int32     `cbor:"Period"`
+		MaxContributorCount int       `cbor:"MaxContributorCount"`
+		Metrics             []string  `cbor:"Metrics"`
+		OrderBy             string    `cbor:"OrderBy"`
 	}
 	if !cwReadCBOR(w, r, &req) {
 		return
@@ -539,35 +483,17 @@ func handleCWCBORGetInsightRuleReport(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "MissingParameter", "The parameter RuleName is required.", http.StatusBadRequest)
 		return
 	}
-	if _, ok := cwInsightRules.Get(req.RuleName); !ok {
+	ir, ok := cwInsightRules.Get(req.RuleName)
+	if !ok {
 		cwWriteCBORError(w, "ResourceNotFoundException", "The specified rule does not exist.", http.StatusNotFound)
 		return
 	}
-	buckets := cwInsightReportBuckets(req.StartTime.Unix(), req.EndTime.Unix(), req.Period)
-	datapoints := make([]map[string]any, 0, len(buckets))
-	for _, t := range buckets {
-		dp := map[string]any{
-			"Timestamp":           time.Unix(t, 0).UTC(),
-			"UniqueContributors":  float64(0),
-			"MaxContributorValue": float64(0),
-			"SampleCount":         float64(0),
-		}
-		for _, m := range req.Metrics {
-			switch m {
-			case "Average", "Sum", "Minimum", "Maximum":
-				dp[m] = float64(0)
-			}
-		}
-		datapoints = append(datapoints, dp)
+	rep, err := cwBuildInsightReport(ir, req.StartTime.Unix(), req.EndTime.Unix(), req.Period, req.MaxContributorCount, req.OrderBy, req.Metrics)
+	if err != nil {
+		cwWriteCBORError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
 	}
-	cwWriteCBOR(w, map[string]any{
-		"KeyLabels":              []string{},
-		"AggregationStatistic":   "Sum",
-		"AggregateValue":         float64(0),
-		"ApproximateUniqueCount": int64(0),
-		"Contributors":           []map[string]any{},
-		"MetricDatapoints":       datapoints,
-	})
+	cwWriteCBOR(w, cwInsightReportCBOR(rep))
 }
 
 func handleCWCBORDescribeAlarmContributors(w http.ResponseWriter, r *http.Request) {
@@ -600,13 +526,17 @@ func handleCWCBORGetMetricWidgetImage(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "MissingParameter", "The parameter MetricWidget is required.", http.StatusBadRequest)
 		return
 	}
-	var widget map[string]any
-	if err := json.Unmarshal([]byte(req.MetricWidget), &widget); err != nil {
-		cwWriteCBORError(w, "InvalidParameterValue", "MetricWidget is not valid JSON.", http.StatusBadRequest)
+	if req.OutputFormat != "" && req.OutputFormat != "png" {
+		cwWriteCBORError(w, "InvalidParameterValue", "The OutputFormat must be png.", http.StatusBadRequest)
+		return
+	}
+	image, err := cwRenderMetricWidget(req.MetricWidget, time.Now())
+	if err != nil {
+		cwWriteCBORError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 		return
 	}
 	// CBOR encodes a []byte as a byte string, the blob wire form.
-	cwWriteCBOR(w, map[string]any{"MetricWidgetImage": cwRenderWidgetPNG(widget)})
+	cwWriteCBOR(w, map[string]any{"MetricWidgetImage": image})
 }
 
 // cwManagedRuleDefinition builds the rule body from the template and the

@@ -1549,7 +1549,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws AWS Lambda concurrency
             cloud: aws
-            tf_packages: "./lambda-concurrency"
+            tf_packages: "./lambda-concurrency ./cloudwatch-anomaly"
             timeout_minutes: 12
           - suite: aws Amazon CloudWatch composite alarm
             cloud: aws

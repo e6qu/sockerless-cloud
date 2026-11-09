@@ -236,7 +236,7 @@ func cwRunInsightsQuery(query string, records []cwInsightsRecord, reqLimit int) 
 	if reqLimit > 0 {
 		limit = reqLimit
 	}
-	statsApplied := false
+	statsApplied, sorted := false, false
 
 	for _, raw := range stages {
 		cmd := strings.TrimSpace(raw)
@@ -259,6 +259,7 @@ func cwRunInsightsQuery(query string, records []cwInsightsRecord, reqLimit int) 
 			outputFields = cwStatsOutputFields(rest)
 		case "sort", "order":
 			records = cwSortRecords(rest, records)
+			sorted = true
 		case "limit":
 			if n, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil {
 				limit = n
@@ -268,7 +269,7 @@ func cwRunInsightsQuery(query string, records []cwInsightsRecord, reqLimit int) 
 		}
 	}
 	// Without sort or stats, Insights orders newest-first by @timestamp.
-	if !statsApplied {
+	if !statsApplied && !sorted {
 		sort.SliceStable(records, func(i, j int) bool {
 			return cwRecTS(records[i]) > cwRecTS(records[j])
 		})

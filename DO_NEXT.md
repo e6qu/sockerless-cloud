@@ -10,7 +10,7 @@
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.
-- **The fidelity gaps the comment pass surfaced** (BUG-3779 to 3784, 3786 to 3789 and 3791), service
+- **The fidelity gaps the comment pass surfaced** (BUG-3779, 3780, 3782 to 3784, 3786 to 3789 and 3791), service
   by service, each with its SDK, CLI and Terraform tests.
 
 - **M1 of `PLAN.md`: a complete 3.x release, then the App token**
@@ -27,7 +27,9 @@
 - **CloudWatch Logs follow-ups.** Implement `parseToOCSF` and the rest of
   `DateTimeFormatter` with Java SE 17's locale data (BUG-3936), the account
   policies that still take no effect (BUG-3960), and the batch and payload
-  limits (BUG-3961, BUG-3962).
+  limits (BUG-3961, BUG-3962); capture the anomaly detection, metric math,
+  widget, Contributor Insights, scheduled query and import details no source
+  states (BUG-3951, BUG-3952).
 - **Core-service gaps.** Azure Managed Disks as block devices (BUG-3931),
   Cloud Monitoring (BUG-3522) and Filestore; the managed caches' remaining
   gaps (BUG-3835, BUG-3840 and BUG-3845).

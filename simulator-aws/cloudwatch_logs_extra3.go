@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/google/uuid"
 )
 
 // CloudWatch Logs Insights renders @timestamp as "YYYY-MM-DD HH:MM:SS.mmm".
@@ -50,6 +49,7 @@ type CWScheduledQuery struct {
 	ScheduleStartTime        int64           `json:"scheduleStartTime,omitempty"`
 	ScheduleEndTime          int64           `json:"scheduleEndTime,omitempty"`
 	StartTimeOffset          int64           `json:"startTimeOffset,omitempty"`
+	EndTimeOffset            int64           `json:"endTimeOffset,omitempty"`
 	Timezone                 string          `json:"timezone,omitempty"`
 	ExecutionRoleArn         string          `json:"executionRoleArn,omitempty"`
 	State                    string          `json:"state,omitempty"`
@@ -73,12 +73,14 @@ type CWImportTask struct {
 	ImportId             string          `json:"importId"`
 	ImportSourceArn      string          `json:"importSourceArn,omitempty"`
 	ImportDestinationArn string          `json:"importDestinationArn,omitempty"`
+	ImportRoleArn        string          `json:"importRoleArn,omitempty"`
 	ImportStatus         string          `json:"importStatus"`
 	ImportFilter         json.RawMessage `json:"importFilter,omitempty"`
-	BytesImported        int64           `json:"-"`
+	BytesImported        int64           `json:"bytesImported"`
 	CreationTime         int64           `json:"creationTime"`
 	LastUpdatedTime      int64           `json:"lastUpdatedTime"`
 	ErrorMessage         string          `json:"errorMessage,omitempty"`
+	Batches              []CWImportBatch `json:"batches,omitempty"`
 }
 
 var (
@@ -95,6 +97,8 @@ func registerCloudWatchLogsExtra3(r *AWSRouter, srv *sim.Server) {
 	cwScheduledQ = sim.MakeStore[CWScheduledQuery](srv.DB(), "cw_scheduled_queries")
 	cwTransformers = sim.MakeStore[CWTransformer](srv.DB(), "cw_transformers")
 	cwImportTasks = sim.MakeStore[CWImportTask](srv.DB(), "cw_import_tasks")
+	registerCloudWatchScheduledQueryRuns(srv)
+	registerCloudWatchLogsImports(srv)
 
 	for op, h := range map[string]http.HandlerFunc{
 		"PutIntegration":                 handleCWPutIntegration,
@@ -398,6 +402,7 @@ func handleCWCreateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		ScheduleStartTime        int64           `json:"scheduleStartTime"`
 		ScheduleEndTime          int64           `json:"scheduleEndTime"`
 		StartTimeOffset          int64           `json:"startTimeOffset"`
+		EndTimeOffset            int64           `json:"endTimeOffset"`
 		Timezone                 string          `json:"timezone"`
 		ExecutionRoleArn         string          `json:"executionRoleArn"`
 		State                    string          `json:"state"`
@@ -409,6 +414,10 @@ func handleCWCreateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" || req.QueryString == "" || req.ScheduleExpression == "" {
 		AWSError(w, "InvalidParameterException", "name, queryString and scheduleExpression are required", http.StatusBadRequest)
+		return
+	}
+	if _, err := parseAWSSchedule(req.ScheduleExpression, req.Timezone, false); err != nil {
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "Invalid scheduleExpression: %v", err)
 		return
 	}
 	state := req.State
@@ -428,6 +437,7 @@ func handleCWCreateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		ScheduleStartTime:        req.ScheduleStartTime,
 		ScheduleEndTime:          req.ScheduleEndTime,
 		StartTimeOffset:          req.StartTimeOffset,
+		EndTimeOffset:            req.EndTimeOffset,
 		Timezone:                 req.Timezone,
 		ExecutionRoleArn:         req.ExecutionRoleArn,
 		State:                    state,
@@ -484,6 +494,9 @@ func cwScheduledQueryResponse(sq CWScheduledQuery) map[string]any {
 	if sq.StartTimeOffset != 0 {
 		out["startTimeOffset"] = sq.StartTimeOffset
 	}
+	if sq.EndTimeOffset != 0 {
+		out["endTimeOffset"] = sq.EndTimeOffset
+	}
 	if sq.LastTriggeredTime != 0 {
 		out["lastTriggeredTime"] = sq.LastTriggeredTime
 	}
@@ -524,6 +537,7 @@ func handleCWUpdateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		ScheduleStartTime        int64           `json:"scheduleStartTime"`
 		ScheduleEndTime          int64           `json:"scheduleEndTime"`
 		StartTimeOffset          int64           `json:"startTimeOffset"`
+		EndTimeOffset            int64           `json:"endTimeOffset"`
 		Timezone                 string          `json:"timezone"`
 		ExecutionRoleArn         string          `json:"executionRoleArn"`
 		State                    string          `json:"state"`
@@ -537,6 +551,17 @@ func handleCWUpdateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified scheduled query does not exist: %s", req.Identifier)
+		return
+	}
+	expr, tz := sq.ScheduleExpression, sq.Timezone
+	if req.ScheduleExpression != "" {
+		expr = req.ScheduleExpression
+	}
+	if req.Timezone != "" {
+		tz = req.Timezone
+	}
+	if _, err := parseAWSSchedule(expr, tz, false); err != nil {
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "Invalid scheduleExpression: %v", err)
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -564,6 +589,9 @@ func handleCWUpdateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.StartTimeOffset != 0 {
 			s.StartTimeOffset = req.StartTimeOffset
+		}
+		if req.EndTimeOffset != 0 {
+			s.EndTimeOffset = req.EndTimeOffset
 		}
 		if req.Timezone != "" {
 			s.Timezone = req.Timezone
@@ -598,6 +626,7 @@ func handleCWDeleteScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cwScheduledQ.Delete(sq.ScheduledQueryArn)
+	cwDeleteScheduledQueryRuns(sq.ScheduledQueryArn)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -637,28 +666,6 @@ func handleCWListScheduledQueries(w http.ResponseWriter, r *http.Request) {
 		queries = append(queries, summary)
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"scheduledQueries": queries})
-}
-
-func handleCWGetScheduledQueryHistory(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Identifier string `json:"identifier"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	sq, ok := cwScheduledQueryByIdentifier(req.Identifier)
-	if !ok {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified scheduled query does not exist: %s", req.Identifier)
-		return
-	}
-	// The simulator records no trigger runs, so the history is empty.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"scheduledQueryArn": sq.ScheduledQueryArn,
-		"name":              sq.Name,
-		"triggerHistory":    []map[string]any{},
-	})
 }
 
 func cwWriteTransformerConfigError(w http.ResponseWriter, err error) {
@@ -803,42 +810,6 @@ func handleCWTestTransformer(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"transformedLogs": transformed})
 }
 
-func handleCWCreateImportTask(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ImportSourceArn string          `json:"importSourceArn"`
-		ImportRoleArn   string          `json:"importRoleArn"`
-		ImportFilter    json.RawMessage `json:"importFilter"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.ImportSourceArn == "" {
-		AWSError(w, "InvalidParameterException", "importSourceArn is required", http.StatusBadRequest)
-		return
-	}
-	id := uuid.New().String()
-	now := time.Now().UnixMilli()
-	destArn := "arn:aws:logs:" + awsRegion() + ":" + awsAccountID() + ":log-group:import-" + id
-	// The task settles COMPLETED at once; the simulator reads nothing from the
-	// import source.
-	cwImportTasks.Put(id, CWImportTask{
-		ImportId:             id,
-		ImportSourceArn:      req.ImportSourceArn,
-		ImportDestinationArn: destArn,
-		ImportStatus:         "COMPLETED",
-		ImportFilter:         req.ImportFilter,
-		BytesImported:        0,
-		CreationTime:         now,
-		LastUpdatedTime:      now,
-	})
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"importId":             id,
-		"importDestinationArn": destArn,
-		"creationTime":         now,
-	})
-}
-
 func handleCWCancelImportTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ImportId string `json:"importId"`
@@ -915,49 +886,6 @@ func handleCWDescribeImportTasks(w http.ResponseWriter, r *http.Request) {
 		imports = append(imports, cwImportTaskResponse(t))
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"imports": imports})
-}
-
-func handleCWDescribeImportTaskBatches(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ImportId          string `json:"importId"`
-		BatchImportStatus string `json:"batchImportStatus"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	task, ok := cwImportTasks.Get(req.ImportId)
-	if !ok {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified import task does not exist: %s", req.ImportId)
-		return
-	}
-	// A completed import reports one batch carrying its terminal status.
-	batches := []map[string]any{}
-	if task.ImportStatus == "COMPLETED" || task.ImportStatus == "FAILED" || task.ImportStatus == "CANCELLED" {
-		batch := map[string]any{
-			"batchId": uuid.New().String(),
-			"status":  task.ImportStatus,
-		}
-		if task.ErrorMessage != "" {
-			batch["errorMessage"] = task.ErrorMessage
-		}
-		batches = append(batches, batch)
-	}
-	if req.BatchImportStatus != "" {
-		filtered := batches[:0]
-		for _, b := range batches {
-			if b["status"] == req.BatchImportStatus {
-				filtered = append(filtered, b)
-			}
-		}
-		batches = filtered
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"importId":        task.ImportId,
-		"importSourceArn": task.ImportSourceArn,
-		"importBatches":   batches,
-	})
 }
 
 func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
@@ -1093,50 +1021,6 @@ func handleCWPutLogGroupDeletionProtection(w http.ResponseWriter, r *http.Reques
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-func handleCWListAnomalies(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		AnomalyDetectorArn string `json:"anomalyDetectorArn"`
-		SuppressionState   string `json:"suppressionState"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.AnomalyDetectorArn != "" {
-		if _, ok := cwLogAnomalyDetectors.Get(req.AnomalyDetectorArn); !ok {
-			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-				"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
-			return
-		}
-	}
-	// The simulator surfaces no anomalies.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"anomalies": []map[string]any{}})
-}
-
-func handleCWUpdateAnomaly(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		AnomalyDetectorArn string `json:"anomalyDetectorArn"`
-		AnomalyId          string `json:"anomalyId"`
-		PatternId          string `json:"patternId"`
-		SuppressionType    string `json:"suppressionType"`
-		Baseline           bool   `json:"baseline"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.AnomalyDetectorArn == "" {
-		AWSError(w, "InvalidParameterException", "anomalyDetectorArn is required", http.StatusBadRequest)
-		return
-	}
-	if _, ok := cwLogAnomalyDetectors.Get(req.AnomalyDetectorArn); !ok {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
 func handleCWUpdateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AnomalyDetectorArn    string `json:"anomalyDetectorArn"`
@@ -1151,6 +1035,14 @@ func handleCWUpdateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Enabled == nil {
 		AWSError(w, "InvalidParameterException", "enabled is required", http.StatusBadRequest)
+		return
+	}
+	if _, ok := cwLogEvaluationFrequencies[req.EvaluationFrequency]; req.EvaluationFrequency != "" && !ok {
+		AWSError(w, "InvalidParameterException", "evaluationFrequency must be one of ONE_MIN, FIVE_MIN, TEN_MIN, FIFTEEN_MIN, THIRTY_MIN or ONE_HOUR", http.StatusBadRequest)
+		return
+	}
+	if req.AnomalyVisibilityTime != 0 && (req.AnomalyVisibilityTime < 7 || req.AnomalyVisibilityTime > 90) {
+		AWSError(w, "InvalidParameterException", "anomalyVisibilityTime must be between 7 and 90 days", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UnixMilli()

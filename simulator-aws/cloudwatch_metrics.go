@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -84,38 +83,20 @@ func registerCloudWatchMetrics(srv *sim.Server, startBackgroundEvaluator bool) {
 
 	if startBackgroundEvaluator {
 		startCWAlarmEvaluator(srv)
+		startCWAnomalyTrainer(srv)
 	}
 }
 
 type getMetricDataRequest struct {
-	StartTime         time.Time         `cbor:"StartTime"`
-	EndTime           time.Time         `cbor:"EndTime"`
-	MetricDataQueries []metricDataQuery `cbor:"MetricDataQueries"`
-}
-
-type metricDataQuery struct {
-	Id         string      `cbor:"Id"`
-	MetricStat *metricStat `cbor:"MetricStat,omitempty"`
-}
-
-type metricStat struct {
-	Metric *metricRef `cbor:"Metric"`
-	Period int32      `cbor:"Period"`
-	Stat   string     `cbor:"Stat"`
-}
-
-type metricRef struct {
-	Namespace  string        `cbor:"Namespace"`
-	MetricName string        `cbor:"MetricName"`
-	Dimensions []CWDimension `cbor:"Dimensions,omitempty"`
-}
-
-type getMetricDataResponse struct {
-	MetricDataResults []metricDataResult `cbor:"MetricDataResults"`
+	StartTime         time.Time           `cbor:"StartTime"`
+	EndTime           time.Time           `cbor:"EndTime"`
+	ScanBy            string              `cbor:"ScanBy"`
+	MetricDataQueries []CWMetricDataQuery `cbor:"MetricDataQueries"`
 }
 
 type metricDataResult struct {
 	Id         string      `cbor:"Id"`
+	Label      string      `cbor:"Label,omitempty"`
 	StatusCode string      `cbor:"StatusCode"`
 	Values     []float64   `cbor:"Values"`
 	Timestamps []time.Time `cbor:"Timestamps"`
@@ -132,28 +113,16 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "InvalidParameterValue", "Invalid CBOR request", http.StatusBadRequest)
 		return
 	}
-
-	var results []metricDataResult
-
-	for _, q := range req.MetricDataQueries {
-		result := metricDataResult{
-			Id:         q.Id,
-			StatusCode: "Complete",
-		}
-		if q.MetricStat != nil && q.MetricStat.Metric != nil {
-			m := q.MetricStat.Metric
-			// Serve only the datapoints PutMetricData recorded, for every namespace; the
-			// simulator measures no live container utilization.
-			if data, ok := cwMetrics.Get(metricsKey(m.Namespace, m.MetricName, m.Dimensions)); ok {
-				result.Values, result.Timestamps = cwAggregate(data,
-					float64(req.StartTime.Unix()), float64(req.EndTime.Unix()), q.MetricStat.Period, q.MetricStat.Stat)
-			}
-		}
-		results = append(results, result)
+	outputs, err := cwGetMetricData(req.MetricDataQueries, req.StartTime, req.EndTime, req.ScanBy)
+	if err != nil {
+		cwWriteCBORError(w, "ValidationError", err.Error(), http.StatusBadRequest)
+		return
 	}
-
-	resp := getMetricDataResponse{MetricDataResults: results}
-	data, err := cwEncMode.Marshal(resp)
+	results := make([]metricDataResult, 0, len(outputs))
+	for _, o := range outputs {
+		results = append(results, metricDataResult{Id: o.Id, Label: o.Label, StatusCode: "Complete", Values: o.Values, Timestamps: o.Timestamps})
+	}
+	data, err := cwEncMode.Marshal(map[string]any{"MetricDataResults": results})
 	if err != nil {
 		cwWriteCBORError(w, "InternalFailure", "Failed to encode response", http.StatusInternalServerError)
 		return
@@ -163,33 +132,6 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Smithy-Protocol", "rpc-v2-cbor")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
-}
-
-// Buckets cover [startSec, endSec), newest first, as CloudWatch's default
-// TimestampDescending.
-func cwAggregate(data []CWMetricDatum, startSec, endSec float64, period int32, stat string) (values []float64, timestamps []time.Time) {
-	if period <= 0 {
-		period = 60
-	}
-	p := int64(period)
-	buckets := map[int64][]float64{}
-	for _, d := range data {
-		if d.Timestamp < startSec || d.Timestamp >= endSec {
-			continue
-		}
-		b := (int64(d.Timestamp) / p) * p
-		buckets[b] = append(buckets[b], d.Value)
-	}
-	keys := make([]int64, 0, len(buckets))
-	for k := range buckets {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] > keys[j] })
-	for _, k := range keys {
-		values = append(values, cwApplyStat(stat, buckets[k]))
-		timestamps = append(timestamps, time.Unix(k, 0).UTC())
-	}
-	return values, timestamps
 }
 
 func cwApplyStat(stat string, vals []float64) float64 {

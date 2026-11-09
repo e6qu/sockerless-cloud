@@ -91,21 +91,27 @@ type CWLogAnomalyDetector struct {
 	// UpdateLogAnomalyDetector restores this status when it restarts a paused
 	// detector.
 	StatusBeforePause string `json:"statusBeforePause,omitempty"`
+	// LastEvaluated is when training ended or the last analysis ran, in epoch
+	// milliseconds; the next analysis reads the events ingested since.
+	LastEvaluated int64 `json:"lastEvaluated,omitempty"`
 }
 
 func (d CWLogAnomalyDetector) wire() map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"anomalyDetectorArn":    d.AnomalyDetectorArn,
-		"detectorName":          d.DetectorName,
 		"logGroupArnList":       d.LogGroupArnList,
 		"evaluationFrequency":   d.EvaluationFrequency,
-		"filterPattern":         d.FilterPattern,
 		"anomalyDetectorStatus": d.AnomalyDetectorStatus,
-		"kmsKeyId":              d.KmsKeyId,
 		"creationTimeStamp":     d.CreationTimeStamp,
 		"lastModifiedTimeStamp": d.LastModifiedTimeStamp,
 		"anomalyVisibilityTime": d.AnomalyVisibilityTime,
 	}
+	for key, value := range map[string]string{"detectorName": d.DetectorName, "filterPattern": d.FilterPattern, "kmsKeyId": d.KmsKeyId} {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 // Keyed by logGroupIdentifier.
@@ -138,6 +144,7 @@ func registerCloudWatchLogsExtra2(r *AWSRouter, srv *sim.Server) {
 	cwDeliveryDests = sim.MakeStore[CWDeliveryDestination](srv.DB(), "cw_delivery_destinations")
 	cwLogAnomalyDetectors = sim.MakeStore[CWLogAnomalyDetector](srv.DB(), "cw_log_anomaly_detectors")
 	cwIndexPolicies = sim.MakeStore[CWIndexPolicy](srv.DB(), "cw_index_policies")
+	registerCloudWatchLogsAnomalyDetection(srv)
 
 	r.Register("Logs_20140328.PutAccountPolicy", handleCWPutAccountPolicy)
 	r.Register("Logs_20140328.DescribeAccountPolicies", handleCWDescribeAccountPolicies)
@@ -729,8 +736,30 @@ func handleCWCreateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if len(req.LogGroupArnList) == 0 {
-		AWSError(w, "InvalidParameterException", "logGroupArnList is required", http.StatusBadRequest)
+	if len(req.LogGroupArnList) != 1 {
+		AWSError(w, "InvalidParameterException", "logGroupArnList must contain exactly one log group ARN", http.StatusBadRequest)
+		return
+	}
+	if _, ok := cwLogGroupByArn(req.LogGroupArnList[0]); !ok {
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			"The specified log group does not exist: %s", req.LogGroupArnList[0])
+		return
+	}
+	if _, ok := cwLogEvaluationFrequencies[req.EvaluationFrequency]; req.EvaluationFrequency != "" && !ok {
+		AWSError(w, "InvalidParameterException", "evaluationFrequency must be one of ONE_MIN, FIVE_MIN, TEN_MIN, FIFTEEN_MIN, THIRTY_MIN or ONE_HOUR", http.StatusBadRequest)
+		return
+	}
+	if req.FilterPattern != "" {
+		if _, err := cwCompileLogPattern(req.FilterPattern); err != nil {
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "Invalid filterPattern: %v", err)
+			return
+		}
+	}
+	if req.AnomalyVisibilityTime == 0 {
+		req.AnomalyVisibilityTime = cwLogAnomalyDefaultDays
+	}
+	if req.AnomalyVisibilityTime < 7 || req.AnomalyVisibilityTime > 90 {
+		AWSError(w, "InvalidParameterException", "anomalyVisibilityTime must be between 7 and 90 days", http.StatusBadRequest)
 		return
 	}
 	for _, arn := range req.LogGroupArnList {
@@ -821,6 +850,7 @@ func handleCWDeleteLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 		return
 	}
+	cwDeleteLogAnomalyModel(req.AnomalyDetectorArn)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 

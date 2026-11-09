@@ -79,61 +79,38 @@ func registerCloudWatchMiscJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.ListTagsForResource", handleCWJSONListTagsForResource)
 }
 
-type cwJSONMetricDataQuery struct {
-	Id         string `json:"Id"`
-	MetricStat *struct {
-		Metric struct {
-			Namespace  string        `json:"Namespace"`
-			MetricName string        `json:"MetricName"`
-			Dimensions []CWDimension `json:"Dimensions"`
-		} `json:"Metric"`
-		Period int32  `json:"Period"`
-		Stat   string `json:"Stat"`
-	} `json:"MetricStat"`
-	Label      string `json:"Label"`
-	ReturnData *bool  `json:"ReturnData"`
-}
-
 func handleCWJSONGetMetricData(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		MetricDataQueries []cwJSONMetricDataQuery `json:"MetricDataQueries"`
-		StartTime         float64                 `json:"StartTime"`
-		EndTime           float64                 `json:"EndTime"`
+		MetricDataQueries []CWMetricDataQuery `json:"MetricDataQueries"`
+		StartTime         float64             `json:"StartTime"`
+		EndTime           float64             `json:"EndTime"`
+		ScanBy            string              `json:"ScanBy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
-	results := make([]map[string]any, 0, len(req.MetricDataQueries))
-	for _, q := range req.MetricDataQueries {
-		res := map[string]any{
-			"Id":         q.Id,
-			"Label":      q.Label,
-			"StatusCode": "Complete",
-		}
-		var values []float64
-		var timestamps []float64
-		if q.MetricStat != nil {
-			m := q.MetricStat.Metric
-			if data, ok := cwMetrics.Get(metricsKey(m.Namespace, m.MetricName, m.Dimensions)); ok {
-				vals, ts := cwAggregate(data, req.StartTime, req.EndTime, q.MetricStat.Period, q.MetricStat.Stat)
-				for i, v := range vals {
-					values = append(values, v)
-					timestamps = append(timestamps, float64(ts[i].Unix()))
-				}
-			}
-		}
+	outputs, err := cwGetMetricData(req.MetricDataQueries, time.Unix(int64(req.StartTime), 0), time.Unix(int64(req.EndTime), 0), req.ScanBy)
+	if err != nil {
+		AWSError(w, "ValidationError", err.Error(), http.StatusBadRequest)
+		return
+	}
+	results := make([]map[string]any, 0, len(outputs))
+	for _, o := range outputs {
 		// Values are Doubles: render a decimal point so the awsJson deserializer
 		// reads floats.
-		valNums := make([]any, 0, len(values))
-		for _, v := range values {
-			valNums = append(valNums, cwJSONStat(v))
+		values := make([]any, 0, len(o.Values))
+		for _, v := range o.Values {
+			values = append(values, cwJSONStat(v))
 		}
-		if q.Label == "" {
-			delete(res, "Label")
+		timestamps := make([]float64, 0, len(o.Timestamps))
+		for _, ts := range o.Timestamps {
+			timestamps = append(timestamps, float64(ts.Unix()))
 		}
-		res["Values"] = valNums
-		res["Timestamps"] = timestamps
+		res := map[string]any{"Id": o.Id, "StatusCode": "Complete", "Values": values, "Timestamps": timestamps}
+		if o.Label != "" {
+			res["Label"] = o.Label
+		}
 		results = append(results, res)
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"MetricDataResults": results})
@@ -517,39 +494,32 @@ func registerCloudWatchMiscQuery(r *AWSQueryRouter) {
 }
 
 func handleCWQueryGetMetricData(w http.ResponseWriter, r *http.Request) {
-	startSec := cwParseTimeUnix(r.FormValue("StartTime"))
-	endSec := cwParseTimeUnix(r.FormValue("EndTime"))
+	queries, invalid := cwQueryMetricDataQueries(r, "MetricDataQueries")
+	if invalid != "" {
+		cwQueryError(w, "InvalidParameterValue", invalid)
+		return
+	}
+	start := time.Unix(int64(cwParseTimeUnix(r.FormValue("StartTime"))), 0)
+	end := time.Unix(int64(cwParseTimeUnix(r.FormValue("EndTime"))), 0)
+	outputs, err := cwGetMetricData(queries, start, end, r.FormValue("ScanBy"))
+	if err != nil {
+		cwQueryError(w, "ValidationError", err.Error())
+		return
+	}
 	var b []byte
 	b = append(b, []byte("<MetricDataResults>")...)
-	for i := 1; ; i++ {
-		base := "MetricDataQueries.member." + strconv.Itoa(i)
-		id := r.FormValue(base + ".Id")
-		if id == "" {
-			break
-		}
-		ns := r.FormValue(base + ".MetricStat.Metric.Namespace")
-		mn := r.FormValue(base + ".MetricStat.Metric.MetricName")
-		dims := cwQueryDimensions(r, base+".MetricStat.Metric.Dimensions")
-		stat := r.FormValue(base + ".MetricStat.Stat")
-		var period int32 = 60
-		if p := r.FormValue(base + ".MetricStat.Period"); p != "" {
-			if pv, err := strconv.ParseInt(p, 10, 32); err == nil && pv > 0 {
-				period = int32(pv)
-			}
-		}
-		var values []float64
-		var timestamps []time.Time
-		if data, ok := cwMetrics.Get(metricsKey(ns, mn, dims)); ok {
-			values, timestamps = cwAggregate(data, startSec, endSec, period, stat)
-		}
+	for _, o := range outputs {
 		b = append(b, []byte("<member>")...)
-		b = cwQueryAppendf(b, "<Id>%s</Id><StatusCode>Complete</StatusCode>", xmlEscape(id))
-		b = append(b, []byte("<Timestamps>")...)
-		for _, ts := range timestamps {
+		b = cwQueryAppendf(b, "<Id>%s</Id>", xmlEscape(o.Id))
+		if o.Label != "" {
+			b = cwQueryAppendf(b, "<Label>%s</Label>", xmlEscape(o.Label))
+		}
+		b = append(b, []byte("<StatusCode>Complete</StatusCode><Timestamps>")...)
+		for _, ts := range o.Timestamps {
 			b = cwQueryAppendf(b, "<member>%s</member>", ts.Format(time.RFC3339))
 		}
 		b = append(b, []byte("</Timestamps><Values>")...)
-		for _, v := range values {
+		for _, v := range o.Values {
 			b = cwQueryAppendf(b, "<member>%s</member>", cwFormatFloat(v))
 		}
 		b = append(b, []byte("</Values></member>")...)

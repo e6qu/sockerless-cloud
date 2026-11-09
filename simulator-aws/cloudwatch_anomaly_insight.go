@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"sort"
+	"strconv"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -10,12 +12,29 @@ import (
 // Anomaly detectors have no name: (Namespace, MetricName, Stat, Dimensions)
 // identifies one. Insight rules are named, ENABLED or DISABLED.
 
-// The simulator trains no model, so a detector reports PENDING_TRAINING.
 type CWAnomalyDetector struct {
-	Namespace  string        `json:"Namespace"`
-	MetricName string        `json:"MetricName"`
-	Stat       string        `json:"Stat"`
-	Dimensions []CWDimension `json:"Dimensions,omitempty"`
+	Namespace      string                 `json:"Namespace"`
+	MetricName     string                 `json:"MetricName"`
+	Stat           string                 `json:"Stat"`
+	Dimensions     []CWDimension          `json:"Dimensions,omitempty"`
+	Configuration  CWAnomalyConfiguration `json:"Configuration"`
+	PeriodicSpikes *bool                  `json:"PeriodicSpikes,omitempty"`
+	StateValue     string                 `json:"StateValue,omitempty"`
+	TrainedPoints  int                    `json:"TrainedPoints,omitempty"`
+	TrainedNewest  int64                  `json:"TrainedNewest,omitempty"`
+	TrainedFrom    int64                  `json:"TrainedFrom,omitempty"`
+	TrainedTo      int64                  `json:"TrainedTo,omitempty"`
+}
+
+// cwPutAnomalyDetector keeps a detector's training and re-trains it on the
+// next pass, as a changed configuration changes what the model learns from.
+func cwPutAnomalyDetector(d CWAnomalyDetector) {
+	key := cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
+	if existing, ok := cwAnomalyDetectors.Get(key); ok {
+		d.StateValue, d.TrainedFrom, d.TrainedTo = existing.StateValue, existing.TrainedFrom, existing.TrainedTo
+		d.TrainedPoints = -1
+	}
+	cwAnomalyDetectors.Put(key, d)
 }
 
 type CWInsightRule struct {
@@ -25,6 +44,7 @@ type CWInsightRule struct {
 	Definition             string            `json:"Definition"`
 	ApplyOnTransformedLogs bool              `json:"ApplyOnTransformedLogs"`
 	Tags                   map[string]string `json:"-"`
+	EnabledWindows         []CWInsightWindow `json:"EnabledWindows,omitempty"`
 }
 
 var (
@@ -76,9 +96,22 @@ func cwListInsightRules() []CWInsightRule {
 }
 
 func cwSetInsightRulesState(names []string, state string) {
+	now := time.Now().UnixMilli()
 	for _, n := range names {
-		cwInsightRules.Update(n, func(ir *CWInsightRule) { ir.State = state })
+		cwInsightRules.Update(n, func(ir *CWInsightRule) { ir.setState(state, now) })
 	}
+}
+
+// setState opens an ENABLED window or closes the open one.
+func (ir *CWInsightRule) setState(state string, nowMillis int64) {
+	open := len(ir.EnabledWindows) > 0 && ir.EnabledWindows[len(ir.EnabledWindows)-1].To == 0
+	switch {
+	case state == "ENABLED" && !open:
+		ir.EnabledWindows = append(ir.EnabledWindows, CWInsightWindow{From: nowMillis})
+	case state != "ENABLED" && open:
+		ir.EnabledWindows[len(ir.EnabledWindows)-1].To = nowMillis
+	}
+	ir.State = state
 }
 
 func registerCloudWatchAnomalyInsightJSON(r *AWSRouter) {
@@ -93,10 +126,20 @@ func registerCloudWatchAnomalyInsightJSON(r *AWSRouter) {
 }
 
 type cwAnomalyDetectorReq struct {
-	Namespace                   string        `json:"Namespace"`
-	MetricName                  string        `json:"MetricName"`
-	Stat                        string        `json:"Stat"`
-	Dimensions                  []CWDimension `json:"Dimensions"`
+	Namespace     string        `json:"Namespace"`
+	MetricName    string        `json:"MetricName"`
+	Stat          string        `json:"Stat"`
+	Dimensions    []CWDimension `json:"Dimensions"`
+	Configuration *struct {
+		ExcludedTimeRanges []struct {
+			StartTime float64 `json:"StartTime"`
+			EndTime   float64 `json:"EndTime"`
+		} `json:"ExcludedTimeRanges"`
+		MetricTimezone string `json:"MetricTimezone"`
+	} `json:"Configuration"`
+	MetricCharacteristics *struct {
+		PeriodicSpikes *bool `json:"PeriodicSpikes"`
+	} `json:"MetricCharacteristics"`
 	SingleMetricAnomalyDetector *struct {
 		Namespace  string        `json:"Namespace"`
 		MetricName string        `json:"MetricName"`
@@ -109,6 +152,15 @@ type cwAnomalyDetectorReq struct {
 // top-level fields.
 func (req cwAnomalyDetectorReq) resolve() CWAnomalyDetector {
 	d := CWAnomalyDetector{Namespace: req.Namespace, MetricName: req.MetricName, Stat: req.Stat, Dimensions: req.Dimensions}
+	if c := req.Configuration; c != nil {
+		d.Configuration.MetricTimezone = c.MetricTimezone
+		for _, r := range c.ExcludedTimeRanges {
+			d.Configuration.ExcludedTimeRanges = append(d.Configuration.ExcludedTimeRanges, CWAnomalyExcludedRange{StartTime: int64(r.StartTime), EndTime: int64(r.EndTime)})
+		}
+	}
+	if mc := req.MetricCharacteristics; mc != nil {
+		d.PeriodicSpikes = mc.PeriodicSpikes
+	}
 	if s := req.SingleMetricAnomalyDetector; s != nil {
 		if s.Namespace != "" {
 			d.Namespace = s.Namespace
@@ -137,7 +189,13 @@ func handleCWJSONPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "MissingParameter", "Namespace, MetricName and Stat are required.", http.StatusBadRequest)
 		return
 	}
-	cwAnomalyDetectors.Put(cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions), d)
+	if d.Configuration.MetricTimezone != "" {
+		if _, err := time.LoadLocation(d.Configuration.MetricTimezone); err != nil {
+			AWSError(w, "InvalidParameterValue", "The MetricTimezone is not a valid tz database time zone.", http.StatusBadRequest)
+			return
+		}
+	}
+	cwPutAnomalyDetector(d)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -162,12 +220,26 @@ func cwJSONAnomalyDetector(d CWAnomalyDetector) map[string]any {
 	for _, dim := range d.Dimensions {
 		dims = append(dims, map[string]string{"Name": dim.Name, "Value": dim.Value})
 	}
+	ranges := make([]map[string]any, 0, len(d.Configuration.ExcludedTimeRanges))
+	for _, r := range d.Configuration.ExcludedTimeRanges {
+		ranges = append(ranges, map[string]any{"StartTime": float64(r.StartTime), "EndTime": float64(r.EndTime)})
+	}
+	configuration := map[string]any{"ExcludedTimeRanges": ranges}
+	if d.Configuration.MetricTimezone != "" {
+		configuration["MetricTimezone"] = d.Configuration.MetricTimezone
+	}
+	characteristics := map[string]any{}
+	if d.PeriodicSpikes != nil {
+		characteristics["PeriodicSpikes"] = *d.PeriodicSpikes
+	}
 	return map[string]any{
-		"Namespace":  d.Namespace,
-		"MetricName": d.MetricName,
-		"Dimensions": dims,
-		"Stat":       d.Stat,
-		"StateValue": "PENDING_TRAINING",
+		"Namespace":             d.Namespace,
+		"MetricName":            d.MetricName,
+		"Dimensions":            dims,
+		"Stat":                  d.Stat,
+		"Configuration":         configuration,
+		"MetricCharacteristics": characteristics,
+		"StateValue":            d.state(),
 		"SingleMetricAnomalyDetector": map[string]any{
 			"Namespace":  d.Namespace,
 			"MetricName": d.MetricName,
@@ -213,22 +285,32 @@ func handleCWJSONPutInsightRule(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "MissingParameter", "The parameter RuleDefinition is required.", http.StatusBadRequest)
 		return
 	}
-	cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags)
+	if err := cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags); err != nil {
+		AWSError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-func cwPutInsightRule(name, state, definition string, applyOnTransformed bool, tags []cwTagKV) {
+func cwPutInsightRule(name, state, definition string, applyOnTransformed bool, tags []cwTagKV) error {
+	if _, err := cwParseInsightRuleDefinition(definition); err != nil {
+		return err
+	}
 	if state == "" {
 		state = "ENABLED"
+	}
+	if state != "ENABLED" && state != "DISABLED" {
+		return cwRuleProblem("The RuleState must be ENABLED or DISABLED.")
 	}
 	existing, exists := cwInsightRules.Get(name)
 	ir := CWInsightRule{
 		Name:                   name,
-		State:                  state,
 		Schema:                 `{"Name":"CloudWatchLogRule","Version":1}`,
 		Definition:             definition,
 		ApplyOnTransformedLogs: applyOnTransformed,
+		EnabledWindows:         existing.EnabledWindows,
 	}
+	ir.setState(state, time.Now().UnixMilli())
 	if len(tags) > 0 {
 		ir.Tags = map[string]string{}
 		for _, t := range tags {
@@ -238,6 +320,7 @@ func cwPutInsightRule(name, state, definition string, applyOnTransformed bool, t
 		ir.Tags = existing.Tags
 	}
 	cwInsightRules.Put(name, ir)
+	return nil
 }
 
 func handleCWJSONDescribeInsightRules(w http.ResponseWriter, r *http.Request) {
@@ -310,10 +393,14 @@ func registerCloudWatchAnomalyInsightCBOR(srv *sim.Server) {
 }
 
 type cwAnomalyDetectorCBORReq struct {
-	Namespace                   string        `cbor:"Namespace"`
-	MetricName                  string        `cbor:"MetricName"`
-	Stat                        string        `cbor:"Stat"`
-	Dimensions                  []CWDimension `cbor:"Dimensions"`
+	Namespace             string                    `cbor:"Namespace"`
+	MetricName            string                    `cbor:"MetricName"`
+	Stat                  string                    `cbor:"Stat"`
+	Dimensions            []CWDimension             `cbor:"Dimensions"`
+	Configuration         *cborAnomalyConfiguration `cbor:"Configuration"`
+	MetricCharacteristics *struct {
+		PeriodicSpikes *bool `cbor:"PeriodicSpikes"`
+	} `cbor:"MetricCharacteristics"`
 	SingleMetricAnomalyDetector *struct {
 		Namespace  string        `cbor:"Namespace"`
 		MetricName string        `cbor:"MetricName"`
@@ -322,8 +409,35 @@ type cwAnomalyDetectorCBORReq struct {
 	} `cbor:"SingleMetricAnomalyDetector"`
 }
 
+type cborAnomalyConfiguration struct {
+	ExcludedTimeRanges []cborAnomalyRange `cbor:"ExcludedTimeRanges"`
+	MetricTimezone     string             `cbor:"MetricTimezone,omitempty"`
+}
+
+type cborAnomalyRange struct {
+	StartTime time.Time `cbor:"StartTime"`
+	EndTime   time.Time `cbor:"EndTime"`
+}
+
+func cborAnomalyConfigurationOf(c CWAnomalyConfiguration) cborAnomalyConfiguration {
+	out := cborAnomalyConfiguration{ExcludedTimeRanges: []cborAnomalyRange{}, MetricTimezone: c.MetricTimezone}
+	for _, r := range c.ExcludedTimeRanges {
+		out.ExcludedTimeRanges = append(out.ExcludedTimeRanges, cborAnomalyRange{StartTime: time.Unix(r.StartTime, 0).UTC(), EndTime: time.Unix(r.EndTime, 0).UTC()})
+	}
+	return out
+}
+
 func (req cwAnomalyDetectorCBORReq) resolve() CWAnomalyDetector {
 	d := CWAnomalyDetector{Namespace: req.Namespace, MetricName: req.MetricName, Stat: req.Stat, Dimensions: req.Dimensions}
+	if c := req.Configuration; c != nil {
+		d.Configuration.MetricTimezone = c.MetricTimezone
+		for _, r := range c.ExcludedTimeRanges {
+			d.Configuration.ExcludedTimeRanges = append(d.Configuration.ExcludedTimeRanges, CWAnomalyExcludedRange{StartTime: r.StartTime.Unix(), EndTime: r.EndTime.Unix()})
+		}
+	}
+	if mc := req.MetricCharacteristics; mc != nil {
+		d.PeriodicSpikes = mc.PeriodicSpikes
+	}
 	if s := req.SingleMetricAnomalyDetector; s != nil {
 		if s.Namespace != "" {
 			d.Namespace = s.Namespace
@@ -351,7 +465,13 @@ func handleCWCBORPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "MissingParameter", "Namespace, MetricName and Stat are required.", http.StatusBadRequest)
 		return
 	}
-	cwAnomalyDetectors.Put(cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions), d)
+	if d.Configuration.MetricTimezone != "" {
+		if _, err := time.LoadLocation(d.Configuration.MetricTimezone); err != nil {
+			cwWriteCBORError(w, "InvalidParameterValue", "The MetricTimezone is not a valid tz database time zone.", http.StatusBadRequest)
+			return
+		}
+	}
+	cwPutAnomalyDetector(d)
 	cwWriteCBOR(w, map[string]any{})
 }
 
@@ -360,6 +480,8 @@ type cborAnomalyDetector struct {
 	MetricName                  string                     `cbor:"MetricName"`
 	Dimensions                  []CWDimension              `cbor:"Dimensions,omitempty"`
 	Stat                        string                     `cbor:"Stat"`
+	Configuration               cborAnomalyConfiguration   `cbor:"Configuration"`
+	MetricCharacteristics       map[string]any             `cbor:"MetricCharacteristics"`
 	StateValue                  string                     `cbor:"StateValue"`
 	SingleMetricAnomalyDetector cborSingleMetricAnomalyDet `cbor:"SingleMetricAnomalyDetector"`
 }
@@ -386,7 +508,9 @@ func handleCWCBORDescribeAnomalyDetectors(w http.ResponseWriter, r *http.Request
 			MetricName:                  d.MetricName,
 			Dimensions:                  d.Dimensions,
 			Stat:                        d.Stat,
-			StateValue:                  "PENDING_TRAINING",
+			Configuration:               cborAnomalyConfigurationOf(d.Configuration),
+			MetricCharacteristics:       cwAnomalyCharacteristics(d),
+			StateValue:                  d.state(),
 			SingleMetricAnomalyDetector: cborSingleMetricAnomalyDet{Namespace: d.Namespace, MetricName: d.MetricName, Dimensions: d.Dimensions, Stat: d.Stat},
 		})
 	}
@@ -427,7 +551,10 @@ func handleCWCBORPutInsightRule(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "MissingParameter", "The parameter RuleDefinition is required.", http.StatusBadRequest)
 		return
 	}
-	cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags)
+	if err := cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags); err != nil {
+		cwWriteCBORError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
+	}
 	cwWriteCBOR(w, map[string]any{})
 }
 
@@ -525,7 +652,29 @@ func cwQueryAnomalyIdentity(r *http.Request) CWAnomalyDetector {
 	if dims := cwQueryDimensions(r, "SingleMetricAnomalyDetector.Dimensions"); len(dims) > 0 {
 		d.Dimensions = dims
 	}
+	d.Configuration.MetricTimezone = r.FormValue("Configuration.MetricTimezone")
+	for i := 1; ; i++ {
+		base := "Configuration.ExcludedTimeRanges.member." + strconv.Itoa(i)
+		start, end := r.FormValue(base+".StartTime"), r.FormValue(base+".EndTime")
+		if start == "" && end == "" {
+			break
+		}
+		d.Configuration.ExcludedTimeRanges = append(d.Configuration.ExcludedTimeRanges,
+			CWAnomalyExcludedRange{StartTime: int64(cwParseTimeUnix(start)), EndTime: int64(cwParseTimeUnix(end))})
+	}
+	if v := r.FormValue("MetricCharacteristics.PeriodicSpikes"); v != "" {
+		spikes := v == "true"
+		d.PeriodicSpikes = &spikes
+	}
 	return d
+}
+
+func cwAnomalyCharacteristics(d CWAnomalyDetector) map[string]any {
+	out := map[string]any{}
+	if d.PeriodicSpikes != nil {
+		out["PeriodicSpikes"] = *d.PeriodicSpikes
+	}
+	return out
 }
 
 func handleCWQueryPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
@@ -534,7 +683,13 @@ func handleCWQueryPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		cwQueryError(w, "MissingParameter", "Namespace, MetricName and Stat are required.")
 		return
 	}
-	cwAnomalyDetectors.Put(cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions), d)
+	if d.Configuration.MetricTimezone != "" {
+		if _, err := time.LoadLocation(d.Configuration.MetricTimezone); err != nil {
+			cwQueryError(w, "InvalidParameterValue", "The MetricTimezone is not a valid tz database time zone.")
+			return
+		}
+	}
+	cwPutAnomalyDetector(d)
 	cwQueryResult(w, "PutAnomalyDetector", "")
 }
 
@@ -549,7 +704,20 @@ func handleCWQueryDescribeAnomalyDetectors(w http.ResponseWriter, r *http.Reques
 			b = cwQueryAppendf(b, "<member><Name>%s</Name><Value>%s</Value></member>", xmlEscape(dim.Name), xmlEscape(dim.Value))
 		}
 		b = append(b, []byte("</Dimensions>")...)
-		b = cwQueryAppendf(b, "<Stat>%s</Stat><StateValue>PENDING_TRAINING</StateValue>", xmlEscape(d.Stat))
+		b = cwQueryAppendf(b, "<Stat>%s</Stat><Configuration><ExcludedTimeRanges>", xmlEscape(d.Stat))
+		for _, rg := range d.Configuration.ExcludedTimeRanges {
+			b = cwQueryAppendf(b, "<member><StartTime>%s</StartTime><EndTime>%s</EndTime></member>",
+				time.Unix(rg.StartTime, 0).UTC().Format(time.RFC3339), time.Unix(rg.EndTime, 0).UTC().Format(time.RFC3339))
+		}
+		b = append(b, []byte("</ExcludedTimeRanges>")...)
+		if d.Configuration.MetricTimezone != "" {
+			b = cwQueryAppendf(b, "<MetricTimezone>%s</MetricTimezone>", xmlEscape(d.Configuration.MetricTimezone))
+		}
+		b = append(b, []byte("</Configuration><MetricCharacteristics>")...)
+		if d.PeriodicSpikes != nil {
+			b = cwQueryAppendf(b, "<PeriodicSpikes>%t</PeriodicSpikes>", *d.PeriodicSpikes)
+		}
+		b = cwQueryAppendf(b, "</MetricCharacteristics><StateValue>%s</StateValue>", d.state())
 		b = append(b, []byte("</member>")...)
 	}
 	b = append(b, []byte("</AnomalyDetectors>")...)
@@ -578,7 +746,10 @@ func handleCWQueryPutInsightRule(w http.ResponseWriter, r *http.Request) {
 		cwQueryError(w, "MissingParameter", "The parameter RuleDefinition is required.")
 		return
 	}
-	cwPutInsightRule(name, r.FormValue("RuleState"), def, r.FormValue("ApplyOnTransformedLogs") == "true", nil)
+	if err := cwPutInsightRule(name, r.FormValue("RuleState"), def, r.FormValue("ApplyOnTransformedLogs") == "true", cwQueryTags(r)); err != nil {
+		cwQueryError(w, "InvalidParameterValue", err.Error())
+		return
+	}
 	cwQueryResult(w, "PutInsightRule", "")
 }
 

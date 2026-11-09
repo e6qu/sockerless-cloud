@@ -207,7 +207,7 @@ func TestCloudWatch_InsightRules(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-insight"
-	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
+	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"LogFormat":"JSON","Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
 	_, err := client.PutInsightRule(ctx, &cloudwatch.PutInsightRuleInput{
 		RuleName:       aws.String(name),
 		RuleDefinition: aws.String(def),

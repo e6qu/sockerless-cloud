@@ -228,7 +228,7 @@ func TestCloudWatchCLI_AnomalyDetector(t *testing.T) {
 func TestCloudWatchCLI_InsightRules(t *testing.T) {
 	t.Parallel()
 	name := "cli-insight"
-	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.id"]},"AggregateOn":"Count"}`
+	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"LogFormat":"JSON","Contribution":{"Keys":["$.id"]},"AggregateOn":"Count"}`
 	runCLI(t, awsCLI("cloudwatch", "put-insight-rule", "--rule-name", name, "--rule-definition", def))
 	defer func() { _ = awsCLI("cloudwatch", "delete-insight-rules", "--rule-names", name).Run() }()
 

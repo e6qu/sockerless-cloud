@@ -1983,6 +1983,40 @@ fails once the row closes or the operation is served.
   says, where the simulator had reset it to INSUFFICIENT_DATA. A composite
   alarm returns its `StateReasonData` and its real state timestamp over all
   three protocols, and its query-protocol describe its `StateReason`.
+- **Amazon CloudWatch anomaly detection, metric math, widget images and
+  Contributor Insights.** One evaluator answers `GetMetricData`, metric
+  alarms on a `Metrics` array and widget graphs over all three protocols:
+  arithmetic, the aggregate and rounding functions, `METRICS()` and
+  `ANOMALY_DETECTION_BAND`, refusing any other function with
+  `ValidationError` rather than answering an empty series. A trainer re-fits
+  each anomaly detector whenever its two-week window, less its excluded time
+  ranges, gains or loses a datapoint, moving it from `PENDING_TRAINING` to
+  `TRAINED` (or `TRAINED_INSUFFICIENT_DATA`); a band alarm creates the model
+  behind its band, as the User Guide says CloudWatch generates it, and
+  compares each datapoint with the band's edges under the three range
+  operators. `GetMetricWidgetImage` draws the widget's series, bands,
+  horizontal annotations, title and legend into a PNG with the standard
+  library and `x/image`'s bitmap font, where it had drawn an empty frame.
+  Contributor Insights reads only the events a rule's log groups ingested
+  while the rule was ENABLED, kept as enabled windows, so disabling a rule
+  stops its report growing.
+- **Amazon CloudWatch Logs anomaly detection, scheduled queries and
+  imports.** A log anomaly detector moves INITIALIZING, TRAINING (two weeks of
+  its group's events), ANALYZING on a one-second sweep, then analyzes once per
+  its own `evaluationFrequency` the events ingested since its last run: a new
+  pattern, a surge in a known pattern's count and a new value of a discrete
+  dynamic token become anomalies, visible for `anomalyVisibilityTime` days
+  (21 by default, as the guide says) and counted in the `AWS/Logs`
+  `AnomalyCount` metric; `UpdateAnomaly` suppresses an anomaly or a pattern,
+  LIMITED or INFINITE, or ends the suppression. A scheduled query fires on its
+  cron expression through `sim/cron`, assumes its execution role as
+  `logs.amazonaws.com`, delivers to Amazon S3 and a lookup table through
+  their delivery roles, sends "Scheduled Query Completed" to the default
+  event bus and records each run for `GetScheduledQueryHistory`, where the
+  history had been empty. `CreateImportTask` checks that the event data store
+  is ENABLED and that the role trusts `cloudtrail.amazonaws.com`, then imports
+  the store's events in background batches, where the task had settled
+  COMPLETED having read nothing.
 - **Test fidelity: Amazon SNS, AWS Systems Manager, Amazon RDS.** Amazon SNS
   confirms an HTTP or email subscription with an opaque random token that only
   the confirmation message carries, where it had been the subscription ARN

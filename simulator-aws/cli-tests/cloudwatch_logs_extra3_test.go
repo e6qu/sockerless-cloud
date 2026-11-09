@@ -2,6 +2,7 @@ package aws_cli_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -189,46 +190,8 @@ func TestLogsScheduledQueryAndTransformerCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-transformer", "--log-group-identifier", lg))
 }
 
-func TestLogsImportAndStructureCLI(t *testing.T) {
+func TestLogsStructureCLI(t *testing.T) {
 	t.Parallel()
-	create := runCLI(t, awsCLI("logs", "create-import-task",
-		"--import-source-arn", "arn:aws:s3:::cli-import-bucket",
-		"--import-role-arn", "arn:aws:iam::123456789012:role/import-role",
-		"--output", "json"))
-	var ci struct {
-		ImportId             string `json:"importId"`
-		ImportDestinationArn string `json:"importDestinationArn"`
-	}
-	parseJSON(t, create, &ci)
-	require.NotEmpty(t, ci.ImportId)
-
-	descImp := runCLI(t, awsCLI("logs", "describe-import-tasks",
-		"--import-id", ci.ImportId, "--output", "json"))
-	var di struct {
-		Imports []struct {
-			ImportStatus string `json:"importStatus"`
-		} `json:"imports"`
-	}
-	parseJSON(t, descImp, &di)
-	require.Len(t, di.Imports, 1)
-	assert.Equal(t, "COMPLETED", di.Imports[0].ImportStatus)
-
-	batchImp := runCLI(t, awsCLI("logs", "describe-import-task-batches",
-		"--import-id", ci.ImportId, "--output", "json"))
-	var bi struct {
-		ImportId string `json:"importId"`
-	}
-	parseJSON(t, batchImp, &bi)
-	assert.Equal(t, ci.ImportId, bi.ImportId)
-
-	cancelImp := runCLI(t, awsCLI("logs", "cancel-import-task",
-		"--import-id", ci.ImportId, "--output", "json"))
-	var cai struct {
-		ImportId string `json:"importId"`
-	}
-	parseJSON(t, cancelImp, &cai)
-	assert.Equal(t, ci.ImportId, cai.ImportId)
-
 	lg := "cli-structure-lg"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", lg))
 	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", lg))
@@ -281,7 +244,8 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 			"--anomaly-detector-arn", det.AnomalyDetectorArn, "--output", "json")), &got)
 		return got.AnomalyDetectorStatus
 	}
-	assert.Equal(t, "INITIALIZING", detStatus())
+	require.Eventually(t, func() bool { return detStatus() == "ANALYZING" }, 30*time.Second, 500*time.Millisecond,
+		"the detector trains on its group, then analyzes")
 
 	runCLI(t, awsCLI("logs", "update-log-anomaly-detector",
 		"--anomaly-detector-arn", det.AnomalyDetectorArn,
@@ -292,7 +256,7 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 		"--anomaly-detector-arn", det.AnomalyDetectorArn,
 		"--evaluation-frequency", "FIFTEEN_MIN",
 		"--enabled"))
-	assert.Equal(t, "INITIALIZING", detStatus(), "restarting a paused detector resumes its status")
+	assert.Equal(t, "ANALYZING", detStatus(), "restarting a paused detector resumes its status")
 
 	listAnom := runCLI(t, awsCLI("logs", "list-anomalies",
 		"--anomaly-detector-arn", det.AnomalyDetectorArn, "--output", "json"))
@@ -300,7 +264,7 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 		Anomalies []any `json:"anomalies"`
 	}
 	parseJSON(t, listAnom, &la)
-	assert.Empty(t, la.Anomalies, "fresh detector has no anomalies")
+	assert.Empty(t, la.Anomalies, "an empty group has no anomalies")
 
 	runCLI(t, awsCLI("logs", "update-anomaly",
 		"--anomaly-detector-arn", det.AnomalyDetectorArn,
