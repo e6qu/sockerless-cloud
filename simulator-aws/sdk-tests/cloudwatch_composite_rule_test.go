@@ -176,3 +176,23 @@ func TestCloudWatch_CompositeAlarmHoldEndsWhenAChildFlaps(t *testing.T) {
 	assert.Equal(t, []any{childARN}, back["TriggeringChildren"])
 	assert.True(t, strings.HasPrefix(back["NewStateReason"].(string), childARN+" transitioned to OK at "), "reason: %v", back["NewStateReason"])
 }
+
+// TestCloudWatch_DeleteAlarmsDeletesTheNamedAlarmsThatExist expects
+// DeleteAlarms to delete the alarms a request names correctly even when it
+// also names one that does not exist, as the API reference states, and to
+// answer ResourceNotFound for the missing one.
+func TestCloudWatch_DeleteAlarmsDeletesTheNamedAlarmsThatExist(t *testing.T) {
+	t.Parallel()
+	cw := cloudwatchClient()
+	id := nextCloudWatchProbeID()
+	present := fmt.Sprintf("sdk-partial-present-%d", id)
+	missing := fmt.Sprintf("sdk-partial-missing-%d", id)
+	putQuietMetricAlarm(t, cw, present, fmt.Sprintf("Custom/Partial-%d", id))
+
+	_, err := cw.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{missing, present}})
+	var notFound *cwtypes.ResourceNotFound
+	require.ErrorAs(t, err, &notFound)
+	left, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{present}})
+	require.NoError(t, err)
+	assert.Empty(t, left.MetricAlarms, "the alarm the request named correctly is deleted")
+}

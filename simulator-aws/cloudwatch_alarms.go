@@ -388,17 +388,14 @@ func handleCWJSONDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
-	for _, n := range req.AlarmNames {
-		if !cwAlarmExists(n) {
-			AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
-			return
-		}
-	}
 	if msg, ok := cwValidateDeleteAlarms(req.AlarmNames); !ok {
 		AWSError(w, "ValidationError", msg, http.StatusBadRequest)
 		return
 	}
-	cwDeleteAlarms(req.AlarmNames)
+	if missing, ok := cwDeleteAlarms(req.AlarmNames); !ok {
+		AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", missing)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -792,17 +789,14 @@ func handleCWCBORDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "InvalidParameterValue", "Invalid CBOR request", http.StatusBadRequest)
 		return
 	}
-	for _, n := range req.AlarmNames {
-		if !cwAlarmExists(n) {
-			cwWriteCBORErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
-			return
-		}
-	}
 	if msg, ok := cwValidateDeleteAlarms(req.AlarmNames); !ok {
 		cwWriteCBORError(w, "ValidationError", msg, http.StatusBadRequest)
 		return
 	}
-	cwDeleteAlarms(req.AlarmNames)
+	if missing, ok := cwDeleteAlarms(req.AlarmNames); !ok {
+		cwWriteCBORErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", missing)
+		return
+	}
 	cwWriteCBOR(w, map[string]any{})
 }
 
@@ -818,10 +812,20 @@ func cwAlarmExists(name string) bool {
 	return ok
 }
 
-// A deleted alarm's configuration change event carries its last configuration.
-func cwDeleteAlarms(names []string) {
+// cwDeleteAlarms deletes every named alarm that exists, as the API reference
+// requires when a request also names alarms that do not, and returns the first
+// missing name. A deleted alarm's configuration change event carries its last
+// configuration.
+func cwDeleteAlarms(names []string) (string, bool) {
 	now := time.Now().UTC()
+	missing := ""
 	for _, n := range names {
+		if !cwAlarmExists(n) {
+			if missing == "" {
+				missing = n
+			}
+			continue
+		}
 		if a, ok := cwAlarms.Get(n); ok {
 			cwAlarms.Delete(n)
 			state, _ := cwAlarmEffectiveState(a)
@@ -842,6 +846,7 @@ func cwDeleteAlarms(names []string) {
 				cwLogAlarmConfigurationDetail(la, now), nil)
 		}
 	}
+	return missing, missing == ""
 }
 
 func cwStateOrInsufficient(state string) string {
@@ -1109,17 +1114,14 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 
 func handleCWQueryDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 	names := cwQueryStringList(r, "AlarmNames")
-	for _, n := range names {
-		if !cwAlarmExists(n) {
-			cwQueryError(w, "ResourceNotFound", fmt.Sprintf("Alarm %s does not exist", n))
-			return
-		}
-	}
 	if msg, ok := cwValidateDeleteAlarms(names); !ok {
 		cwQueryError(w, "ValidationError", msg)
 		return
 	}
-	cwDeleteAlarms(names)
+	if missing, ok := cwDeleteAlarms(names); !ok {
+		cwQueryError(w, "ResourceNotFound", fmt.Sprintf("Alarm %s does not exist", missing))
+		return
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteAlarmsResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></DeleteAlarmsResponse>`,
 		cwQueryXmlns, sim.NewUUID())

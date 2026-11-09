@@ -82,9 +82,9 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action GraniteServiceVersion20100801.PutMetricAlarm` | ✓ `simulator-aws/cloudwatch_alarms.go:230::handleCWJSONPutMetricAlarm` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.DescribeAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:231::handleCWJSONDescribeAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.DeleteAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:232::handleCWJSONDeleteAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PutMetricAlarm` | ✓ `simulator-aws/cloudwatch_alarms.go:875::handleCWQueryPutMetricAlarm` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:876::handleCWQueryDescribeAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:877::handleCWQueryDeleteAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PutMetricAlarm` | ✓ `simulator-aws/cloudwatch_alarms.go:880::handleCWQueryPutMetricAlarm` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:881::handleCWQueryDescribeAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:882::handleCWQueryDeleteAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PutAnomalyDetector` | ✓ `simulator-aws/cloudwatch_anomaly_insight.go:498::handleCWQueryPutAnomalyDetector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeAnomalyDetectors` | ✓ `simulator-aws/cloudwatch_anomaly_insight.go:499::handleCWQueryDescribeAnomalyDetectors` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteAnomalyDetector` | ✓ `simulator-aws/cloudwatch_anomaly_insight.go:500::handleCWQueryDeleteAnomalyDetector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

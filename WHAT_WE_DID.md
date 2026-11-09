@@ -1962,8 +1962,11 @@ fails once the row closes or the operation is served.
   Region does not hold, where the simulator had stored the first never to
   evaluate it and read a missing child as INSUFFICIENT_DATA; and
   `DeleteAlarms` refuses more than one composite alarm per request and any
-  alarm a composite alarm references, so a child cannot go missing. Where the
-  captures stop, `BUGS.md` holds the inference.
+  alarm a composite alarm references, so a child cannot go missing. A
+  `DeleteAlarms` that also names an alarm the Region does not hold deletes
+  the alarms it names correctly, as the API reference states, before it
+  answers `ResourceNotFound`. Where the captures stop, `BUGS.md` holds the
+  inference.
   Every metric and composite alarm transition also reaches the default
   event bus as a "CloudWatch Alarm State Change" event shaped like the User
   Guide's examples, and an alarm with `AlarmTagsPropagation` enabled carries

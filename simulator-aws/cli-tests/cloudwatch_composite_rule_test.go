@@ -55,3 +55,18 @@ func TestCloudWatchCLI_CompositeAlarmPrecedence(t *testing.T) {
 		t.Fatalf("StateReason = %q, want the created reason", reason)
 	}
 }
+
+// delete-alarms deletes the alarms it names correctly even when it also names
+// one that does not exist, then answers ResourceNotFound.
+func TestCloudWatchCLI_DeleteAlarmsDeletesTheNamedAlarmsThatExist(t *testing.T) {
+	t.Parallel()
+	present := "cli-partial-present"
+	putCLIQuietMetricAlarm(t, present)
+	out := runCLIExpectError(t, awsCLI("cloudwatch", "delete-alarms", "--alarm-names", "cli-partial-missing", present))
+	if !strings.Contains(out, "ResourceNotFound") {
+		t.Fatalf("delete-alarms naming a missing alarm: %s, want ResourceNotFound", out)
+	}
+	if left := runCLI(t, awsCLI("cloudwatch", "describe-alarms", "--alarm-names", present, "--query", "length(MetricAlarms)", "--output", "text")); strings.TrimSpace(left) != "0" {
+		t.Fatalf("describe-alarms after the delete: %s, want 0", left)
+	}
+}
