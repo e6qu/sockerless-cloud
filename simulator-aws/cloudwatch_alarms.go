@@ -22,8 +22,8 @@ type CWAlarm struct {
 	AlarmName               string                 `json:"AlarmName" cbor:"AlarmName"`
 	AlarmArn                string                 `json:"AlarmArn" cbor:"AlarmArn"`
 	AlarmDescription        string                 `json:"AlarmDescription,omitempty" cbor:"AlarmDescription,omitempty"`
-	Namespace               string                 `json:"Namespace" cbor:"Namespace"`
-	MetricName              string                 `json:"MetricName" cbor:"MetricName"`
+	Namespace               string                 `json:"Namespace,omitempty" cbor:"Namespace,omitempty"`
+	MetricName              string                 `json:"MetricName,omitempty" cbor:"MetricName,omitempty"`
 	Dimensions              []CWDimension          `json:"Dimensions,omitempty" cbor:"Dimensions,omitempty"`
 	Statistic               string                 `json:"Statistic,omitempty" cbor:"Statistic,omitempty"`
 	ExtendedStatistic       string                 `json:"ExtendedStatistic,omitempty" cbor:"ExtendedStatistic,omitempty"`
@@ -1036,7 +1036,9 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 			if a.AlarmDescription != "" {
 				fmt.Fprintf(&members, "<AlarmDescription>%s</AlarmDescription>", xmlEscape(a.AlarmDescription))
 			}
-			fmt.Fprintf(&members, "<Namespace>%s</Namespace><MetricName>%s</MetricName>", xmlEscape(a.Namespace), xmlEscape(a.MetricName))
+			if a.Namespace != "" {
+				fmt.Fprintf(&members, "<Namespace>%s</Namespace><MetricName>%s</MetricName>", xmlEscape(a.Namespace), xmlEscape(a.MetricName))
+			}
 			members.WriteString("<Dimensions>")
 			for _, dim := range a.Dimensions {
 				fmt.Fprintf(&members, "<member><Name>%s</Name><Value>%s</Value></member>", xmlEscape(dim.Name), xmlEscape(dim.Value))

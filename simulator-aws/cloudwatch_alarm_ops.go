@@ -340,8 +340,6 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 		"AlarmName":               a.AlarmName,
 		"AlarmArn":                a.AlarmArn,
 		"AlarmDescription":        a.AlarmDescription,
-		"Namespace":               a.Namespace,
-		"MetricName":              a.MetricName,
 		"Dimensions":              dims,
 		"Period":                  a.Period,
 		"EvaluationPeriods":       a.EvaluationPeriods,
@@ -365,6 +363,10 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 	}
 	if a.ThresholdMetricId != "" {
 		entry["ThresholdMetricId"] = a.ThresholdMetricId
+	}
+	if a.Namespace != "" {
+		entry["Namespace"] = a.Namespace
+		entry["MetricName"] = a.MetricName
 	}
 	return entry
 }
