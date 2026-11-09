@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.0](https://github.com/e6qu/sockerless-cloud/compare/v3.7.0...v3.8.0) (2026-11-09)
+
+
+### Features
+
+* Compute Gallery, Logs transformers, CI caches (batch 3) ([#407](https://github.com/e6qu/sockerless-cloud/issues/407)) ([cf59c45](https://github.com/e6qu/sockerless-cloud/commit/cf59c454eb2d2003935b1b8c556d36304cd6f2f2))
+
 ## [3.7.0](https://github.com/e6qu/sockerless-cloud/compare/v3.6.0...v3.7.0) (2026-11-09)
 
 
