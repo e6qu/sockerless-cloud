@@ -2440,6 +2440,10 @@ cached provider at all.
 The node agent's image build downloads Firecracker and its kernel with
 twelve retries fifteen seconds apart on any error, because GitHub's release
 host answered 504 past five quick retries and failed a cold build.
+The docs jobs restore the pre-commit hook environments from the Actions
+cache, keyed on `.pre-commit-config.yaml`: building shellcheck-py's
+downloads shellcheck from GitHub releases, which answered 504 and failed the
+maintaining guide.
 The specification freshness check fetches each upstream page with curl's
 bounded retries, because a documentation host dropping one request failed
 the whole check.

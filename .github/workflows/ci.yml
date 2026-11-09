@@ -1901,6 +1901,14 @@ jobs:
       - uses: ./.github/actions/install-bun
       - name: Install pre-commit
         run: pipx install pre-commit
+      # The maintaining guide installs every hook environment; restoring them
+      # keeps a hook whose build downloads a binary (shellcheck-py from GitHub
+      # releases) off the network.
+      - name: Restore the pre-commit hook environments
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - name: Install latest AWS CLI v2
         if: matrix.cloud == 'aws'
         run: bash scripts/install-aws-cli.sh
