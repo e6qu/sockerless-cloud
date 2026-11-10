@@ -2062,6 +2062,24 @@ fails once the row closes or the operation is served.
   premultiplied colours had made them. `SERVICE_QUOTA`, `DB_PERF_INSIGHTS`
   and Metrics Insights tag filters wait on services the simulator lacks
   (BUG-3990); the details no source states stay in BUG-3951.
+- **Amazon CloudWatch refusals and records from public captures.** Where no
+  AWS document states a detail, a verbatim public record of CloudWatch's
+  answer to a real client counts as a capture, vendored by
+  `scripts/fetch-cloudwatch-captures.sh`: LocalStack's AWS-validated
+  CloudWatch snapshot file, pinned at its commit, and Grafana community posts,
+  served as Markdown by Discourse and pinned at their SHA-256 like an AWS
+  documentation page. `GetMetricData` names the expression a refusal arose in
+  as "Error in expression 'e1': …", once, however deep the expression that
+  failed; an unknown id answers "ID 't5xx' not found"; a scalar result "The
+  return value of the expression must be TimeSeries or Array[TimeSeries]"; a
+  function given operands it does not take "Unsupported operand type(s) for
+  PERIOD: '[Array[TimeSeries]]'", naming each operand Scalar, TimeSeries,
+  Array[TimeSeries] or, for an array literal holding numbers, its element
+  types; and a Metrics Insights query with another function "Invalid syntax.
+  'ANOMALY_DETECTION_BAND' is not a valid aggregate function". `PERIOD` reads
+  the period of any single time series. `DescribeAnomalyDetectors` leaves
+  out `MetricCharacteristics` for a detector created without it, as the
+  snapshot records, where the simulator had answered an empty structure.
 - **Amazon CloudWatch Logs anomaly detection, scheduled queries and
   imports.** A log anomaly detector moves INITIALIZING, TRAINING (two weeks of
   its group's events), ANALYZING on a one-second sweep, then analyzes once per

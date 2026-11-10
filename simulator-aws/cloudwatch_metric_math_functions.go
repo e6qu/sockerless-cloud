@@ -20,19 +20,6 @@ func (ev *cwMetricEvaluator) call(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 		return ev.anomalyBand(n, q)
 	case "METRICS":
 		return ev.metricsFunction(n, q)
-	case "PERIOD":
-		if len(n.args) != 1 || n.args[0].kind != "id" {
-			return cwMathValue{}, fmt.Errorf("PERIOD takes the id of a metric")
-		}
-		target, ok := ev.queries[n.args[0].name]
-		if !ok || target.MetricStat == nil {
-			return cwMathValue{}, fmt.Errorf("PERIOD takes a metric, not the result of an expression")
-		}
-		p := target.MetricStat.Period
-		if p <= 0 {
-			p = 60
-		}
-		return cwScalar(float64(p)), nil
 	case "SEARCH":
 		return ev.search(n, q)
 	case "INSIGHT_RULE_METRIC":
@@ -53,6 +40,11 @@ func (ev *cwMetricEvaluator) call(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 		args = append(args, v)
 	}
 	switch n.name {
+	case "PERIOD":
+		if len(args) != 1 || !args[0].isSingle() {
+			return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("PERIOD takes one time series"))
+		}
+		return cwScalar(float64(args[0].series[0].Period)), nil
 	case "ABS", "CEIL", "FLOOR", "LOG", "LOG10":
 		return cwMathElementwise(n.name, args)
 	case "AVG", "MAX", "MIN", "SUM", "STDDEV":
@@ -65,7 +57,7 @@ func (ev *cwMetricEvaluator) call(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 		return ev.fill(args)
 	case "FIRST", "LAST":
 		if len(args) != 1 || !args[0].isSeries() || !args[0].array {
-			return cwMathValue{}, fmt.Errorf("%s takes an array of time series", n.name)
+			return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("%s takes an array of time series", n.name))
 		}
 		if len(args[0].series) == 0 {
 			return cwMathValue{series: []cwMetricSeries{}}, nil
@@ -80,17 +72,17 @@ func (ev *cwMetricEvaluator) call(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 		return cwMathIf(args)
 	case "METRIC_COUNT":
 		if len(args) != 1 || !args[0].isSeries() || !args[0].array {
-			return cwMathValue{}, fmt.Errorf("METRIC_COUNT takes an array of time series")
+			return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("METRIC_COUNT takes an array of time series"))
 		}
 		return cwScalar(float64(len(args[0].series))), nil
 	case "MINUTE", "HOUR", "DAY", "DATE", "MONTH", "YEAR", "EPOCH":
 		if len(args) != 1 || !args[0].isSingle() {
-			return cwMathValue{}, fmt.Errorf("%s takes one time series", n.name)
+			return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("%s takes one time series", n.name))
 		}
 		return cwSeriesValue(ev.calendar(n.name, args[0].series[0])), nil
 	case "REMOVE_EMPTY":
 		if len(args) != 1 || !args[0].isSeries() || !args[0].array {
-			return cwMathValue{}, fmt.Errorf("REMOVE_EMPTY takes an array of time series")
+			return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("REMOVE_EMPTY takes an array of time series"))
 		}
 		var kept []cwMetricSeries
 		for _, s := range args[0].series {
@@ -105,13 +97,13 @@ func (ev *cwMetricEvaluator) call(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 		return cwMathSort(args)
 	case "TIME_SERIES":
 		if len(args) != 1 {
-			return cwMathValue{}, fmt.Errorf("TIME_SERIES takes one number")
+			return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("TIME_SERIES takes one number"))
 		}
 		if args[0].isSeries() && !args[0].array && len(args[0].series) == 1 && len(args[0].series[0].Points) == 0 {
 			return args[0], nil
 		}
 		if args[0].scalar == nil {
-			return cwMathValue{}, fmt.Errorf("TIME_SERIES takes one number")
+			return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("TIME_SERIES takes one number"))
 		}
 		out := cwMetricSeries{Label: "TIME_SERIES", Period: ev.periodOf(q), Points: map[int64]float64{}}
 		for _, t := range ev.grid(out.Period) {
@@ -154,7 +146,7 @@ func (ev *cwMetricEvaluator) metricsFunction(n *cwMathNode, q CWMetricDataQuery)
 
 func cwMathElementwise(name string, args []cwMathValue) (cwMathValue, error) {
 	if len(args) != 1 || !args[0].isSeries() && args[0].scalar == nil {
-		return cwMathValue{}, fmt.Errorf("%s takes one time series or an array of time series", name)
+		return cwMathValue{}, cwUnsupportedOperands(name, args, fmt.Errorf("%s takes one time series or an array of time series", name))
 	}
 	f := map[string]func(float64) float64{"ABS": math.Abs, "CEIL": math.Ceil, "FLOOR": math.Floor, "LOG": math.Log, "LOG10": math.Log10}[name]
 	apply := func(v float64) (float64, bool) {
@@ -194,7 +186,7 @@ func cwReduce(name string, vals []float64) float64 {
 // missing value at a timestamp as 0.
 func cwMathAggregate(name string, args []cwMathValue) (cwMathValue, error) {
 	if len(args) != 1 || !args[0].isSeries() {
-		return cwMathValue{}, fmt.Errorf("%s takes one time series or an array of time series", name)
+		return cwMathValue{}, cwUnsupportedOperands(name, args, fmt.Errorf("%s takes one time series or an array of time series", name))
 	}
 	series := args[0].series
 	if !args[0].array {
@@ -244,7 +236,7 @@ func cwStdDev(vals []float64) float64 {
 
 func cwMathDatapointCount(args []cwMathValue) (cwMathValue, error) {
 	if len(args) != 1 || !args[0].isSeries() {
-		return cwMathValue{}, fmt.Errorf("DATAPOINT_COUNT takes one time series or an array of time series")
+		return cwMathValue{}, cwUnsupportedOperands("DATAPOINT_COUNT", args, fmt.Errorf("DATAPOINT_COUNT takes one time series or an array of time series"))
 	}
 	if !args[0].array {
 		if len(args[0].series) != 1 {
@@ -266,7 +258,7 @@ func cwMathDatapointCount(args []cwMathValue) (cwMathValue, error) {
 // order; the first datapoint has no predecessor to differ from.
 func cwMathSequential(name string, args []cwMathValue) (cwMathValue, error) {
 	if len(args) != 1 || !args[0].isSeries() {
-		return cwMathValue{}, fmt.Errorf("%s takes one time series or an array of time series", name)
+		return cwMathValue{}, cwUnsupportedOperands(name, args, fmt.Errorf("%s takes one time series or an array of time series", name))
 	}
 	out := make([]cwMetricSeries, 0, len(args[0].series))
 	for _, s := range args[0].series {
@@ -304,13 +296,13 @@ func cwMathSequential(name string, args []cwMathValue) (cwMathValue, error) {
 // (LINEAR).
 func (ev *cwMetricEvaluator) fill(args []cwMathValue) (cwMathValue, error) {
 	if len(args) != 2 || !args[0].isSeries() {
-		return cwMathValue{}, fmt.Errorf("FILL takes a time series or an array of time series and a filler")
+		return cwMathValue{}, cwUnsupportedOperands("FILL", args, fmt.Errorf("FILL takes a time series or an array of time series and a filler"))
 	}
 	filler := args[1]
 	switch {
 	case filler.scalar != nil, filler.keyword == "REPEAT", filler.keyword == "LINEAR", filler.isSingle():
 	default:
-		return cwMathValue{}, fmt.Errorf("FILL fills with a number, a time series, REPEAT or LINEAR")
+		return cwMathValue{}, cwUnsupportedOperands("FILL", args, fmt.Errorf("FILL fills with a number, a time series, REPEAT or LINEAR"))
 	}
 	out := make([]cwMetricSeries, 0, len(args[0].series))
 	for _, s := range args[0].series {
@@ -368,11 +360,11 @@ func (ev *cwMetricEvaluator) fill(args []cwMathValue) (cwMathValue, error) {
 // are dropped.
 func cwMathIf(args []cwMathValue) (cwMathValue, error) {
 	if len(args) < 2 || len(args) > 3 {
-		return cwMathValue{}, fmt.Errorf("IF takes a condition, a true value and an optional false value")
+		return cwMathValue{}, cwUnsupportedOperands("IF", args, fmt.Errorf("IF takes a condition, a true value and an optional false value"))
 	}
 	for _, a := range args {
 		if a.scalar == nil && !a.isSingle() {
-			return cwMathValue{}, fmt.Errorf("IF takes numbers and single time series")
+			return cwMathValue{}, cwUnsupportedOperands("IF", args, fmt.Errorf("IF takes numbers and single time series"))
 		}
 	}
 	cond, yes := args[0], args[1]
@@ -459,11 +451,11 @@ func (ev *cwMetricEvaluator) calendar(name string, s cwMetricSeries) cwMetricSer
 
 func cwMathSlice(args []cwMathValue) (cwMathValue, error) {
 	if len(args) < 2 || len(args) > 3 || !args[0].isSeries() || !args[0].array {
-		return cwMathValue{}, fmt.Errorf("SLICE takes an array of time series, a start and an optional end")
+		return cwMathValue{}, cwUnsupportedOperands("SLICE", args, fmt.Errorf("SLICE takes an array of time series, a start and an optional end"))
 	}
 	for _, a := range args[1:] {
 		if a.scalar == nil {
-			return cwMathValue{}, fmt.Errorf("SLICE takes numbers for its start and end")
+			return cwMathValue{}, cwUnsupportedOperands("SLICE", args, fmt.Errorf("SLICE takes numbers for its start and end"))
 		}
 	}
 	series := args[0].series
@@ -482,7 +474,7 @@ func cwMathSlice(args []cwMathValue) (cwMathValue, error) {
 // without datapoints sorts last.
 func cwMathSort(args []cwMathValue) (cwMathValue, error) {
 	if len(args) < 3 || len(args) > 4 || !args[0].isSeries() || !args[0].array {
-		return cwMathValue{}, fmt.Errorf("SORT takes an array of time series, a function, a sort order and an optional limit")
+		return cwMathValue{}, cwUnsupportedOperands("SORT", args, fmt.Errorf("SORT takes an array of time series, a function, a sort order and an optional limit"))
 	}
 	fn, order := args[1].keyword, args[2].keyword
 	if fn != "AVG" && fn != "MIN" && fn != "MAX" && fn != "SUM" {
@@ -564,14 +556,18 @@ func (ev *cwMetricEvaluator) anomalyBand(n *cwMathNode, q CWMetricDataQuery) (cw
 	}
 	target, ok := ev.queries[n.args[0].name]
 	if !ok {
-		return cwMathValue{}, fmt.Errorf("unrecognized metric or expression id %q", n.args[0].name)
+		return cwMathValue{}, fmt.Errorf("ID '%s' not found", n.args[0].name)
 	}
 	m, err := ev.value(target.Id)
 	if err != nil {
 		return cwMathValue{}, err
 	}
 	if !m.isSingle() {
-		return cwMathValue{}, fmt.Errorf("ANOMALY_DETECTION_BAND needs a single time series")
+		args := []cwMathValue{m}
+		if len(n.args) == 2 {
+			args = append(args, cwScalar(width))
+		}
+		return cwMathValue{}, cwUnsupportedOperands(n.name, args, fmt.Errorf("ANOMALY_DETECTION_BAND needs a single time series"))
 	}
 	series := m.series[0]
 	label := target.Label

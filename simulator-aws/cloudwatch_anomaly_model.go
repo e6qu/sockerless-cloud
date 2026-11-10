@@ -115,7 +115,8 @@ func cwAnomalyTrainingSeries(ctx context.Context, d CWAnomalyDetector, period in
 	return cwMetricSeries{}, false
 }
 
-// A detector with no history stays PENDING_TRAINING; one whose window holds
+// A detector with no history stays PENDING_TRAINING, as LocalStack's
+// AWS-validated snapshot records it; one whose window holds
 // fewer than two datapoints has no spread to learn and is
 // TRAINED_INSUFFICIENT_DATA.
 func cwTrainAnomalyDetector(ctx context.Context, key string, now time.Time) {

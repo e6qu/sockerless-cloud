@@ -299,6 +299,43 @@ func TestCloudWatch_MetricMathSearch(t *testing.T) {
 	requireAWSErrorCode(t, err, "ValidationError")
 }
 
+// TestCloudWatch_MetricMathRefusalMessages expects the refusals CloudWatch
+// answers GetMetricData with, as Grafana users quoted them: an unknown id, a
+// scalar result, and operand types a function does not take.
+func TestCloudWatch_MetricMathRefusalMessages(t *testing.T) {
+	t.Parallel()
+	ns := uniquename.New("Custom/MathRefusals")
+	w := newMathWindow(2)
+	host := func(h string) []cwtypes.Dimension {
+		return []cwtypes.Dimension{{Name: aws.String("Host"), Value: aws.String(h)}}
+	}
+	w.put(t, ns, "Requests", host("a"), 1, 2)
+	w.put(t, ns, "Requests", host("b"), 3, 4)
+	requests := metricQuery("requests", ns, "Requests", false)
+	requests.MetricStat.Metric.Dimensions = host("a")
+	search := exprQuery("hosts", fmt.Sprintf(`SEARCH('{%s,Host} MetricName="Requests"', 'Sum')`, ns))
+	search.Period = aws.Int32(60)
+	search.ReturnData = aws.Bool(false)
+	refuse := func(message string, queries ...cwtypes.MetricDataQuery) {
+		t.Helper()
+		_, err := cloudwatchClient().GetMetricData(ctx, &cloudwatch.GetMetricDataInput{
+			StartTime: aws.Time(w.t0), EndTime: aws.Time(w.end()), MetricDataQueries: queries,
+		})
+		requireAWSError(t, err, "ValidationError", message)
+	}
+	refuse("Error in expression 'e1': ID 't5xx' not found", requests, exprQuery("e1", "FILL(t5xx, 0)"))
+	refuse("Error in expression 'e1': The return value of the expression must be TimeSeries or Array[TimeSeries]", requests, exprQuery("e1", "SUM(requests)"))
+	refuse("Error in expression 'e1': Unsupported operand type(s) for MAX: '[Array[TimeSeries, Scalar]]'", requests, exprQuery("e1", "MAX([requests, 1])"))
+	refuse("Error in expression 'e1': Unsupported operand type(s) for PERIOD: '[Array[TimeSeries]]'", search, exprQuery("e1", "requests / PERIOD(hosts)"), requests)
+	refuse("Error in expression 'e1': Unsupported operand type(s) for ANOMALY_DETECTION_BAND: '[Array[TimeSeries], Scalar]'", search, exprQuery("e1", "ANOMALY_DETECTION_BAND(hosts, 2)"))
+	insights := exprQuery("q1", fmt.Sprintf(`SELECT ANOMALY_DETECTION_BAND(Requests) FROM "%s"`, ns))
+	insights.Period = aws.Int32(60)
+	refuse("Error in expression 'q1': Invalid syntax. 'ANOMALY_DETECTION_BAND' is not a valid aggregate function", insights)
+
+	got := w.query(t, requests, exprQuery("e1", "requests / PERIOD(requests)"))
+	assertSlots(t, []float64{1.0 / 60, 2.0 / 60}, w.slots(got["e1"][0]), "PERIOD of a metric")
+}
+
 // TestCloudWatch_MetricsInsightsQuery runs a Metrics Insights query with
 // SCHEMA, WHERE, GROUP BY, ORDER BY and LIMIT, and feeds its result to a
 // math expression.

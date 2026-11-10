@@ -132,12 +132,22 @@ func (l *cwInsightsLexer) quoted(q rune) (string, error) {
 	return "", fmt.Errorf("a quoted name or value is missing its closing quotation mark")
 }
 
+// function reads an aggregate function's name. CloudWatch refuses another
+// name with "Invalid syntax. 'ANOMALY_DETECTION_BAND' is not a valid
+// aggregate function".
 func (l *cwInsightsLexer) function() (string, error) {
 	l.skip()
 	for _, f := range cwInsightsFunctions {
 		if l.keyword(f) {
 			return f, nil
 		}
+	}
+	end := l.pos
+	for end < len(l.src) && (unicode.IsLetter(l.src[end]) || unicode.IsDigit(l.src[end]) || l.src[end] == '_') {
+		end++
+	}
+	if end > l.pos {
+		return "", cwCloudText(fmt.Sprintf("Invalid syntax. '%s' is not a valid aggregate function", string(l.src[l.pos:end])))
 	}
 	return "", fmt.Errorf("the function must be one of %s", strings.Join(cwInsightsFunctions, ", "))
 }

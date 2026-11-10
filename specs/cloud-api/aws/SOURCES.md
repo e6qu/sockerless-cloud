@@ -299,3 +299,8 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `ocsf-schema-v1.5.0-profiles.tar.gz` | `ocsf/ocsf-schema@v1.5.0` | `profiles` | Apache-2.0 | `commitf0c227b4383ba64f223c3c9d82a2936ee96e7f04` | 2026-11-09T15:49:36Z |
 | `cldr-39.0.0-bcp47-timezone.json.gz` | `unicode-org/cldr-json@39.0.0` | `cldr-json/cldr-bcp47/bcp47/timezone.json` | License-Unicode | `commit3028d95f304cfeba67cab257ebacfed70b82fce0` | 2026-11-09T15:54:47Z |
 | `cldr-39-bcp47-timezone.xml.gz` | `unicode-org/cldr@release-39` | `common/bcp47/timezone.xml` | License-Unicode | `commit651afecf9ccf1541a49306993e8210fa2209aa0b` | 2026-11-09T15:55:22Z |
+| `localstack-cloudwatch-snapshot.json.gz` | `localstack/localstack` | `tests/aws/services/cloudwatch/test_cloudwatch.snapshot.json` | Apache-2.0 | `372c575e1c1c888724d4b76b438ebd8e9b53724c` | 2026-11-10T01:53:10Z |
+| `grafana-community-105652-1.md.gz` | `community.grafana.com` | `raw/105652/1` | Grafana-Community-ToS | `sha2560f05b08f1782752afe8c73985dfc4b2aecc670652731d9eb136e5c7f38d9839e` | 2026-11-10T01:53:11Z |
+| `grafana-community-115805-1.md.gz` | `community.grafana.com` | `raw/115805/1` | Grafana-Community-ToS | `sha25612121fb8542fabdfe90c20964dbbea447dbc3cd0bf69cf3eacf00b97770884b0` | 2026-11-10T01:53:12Z |
+| `grafana-community-115805-3.md.gz` | `community.grafana.com` | `raw/115805/3` | Grafana-Community-ToS | `sha256798c155ab75ef705bfad3478300f91cb770342a0a7b2b138daf754013c015286` | 2026-11-10T01:53:12Z |
+| `grafana-community-126448-1.md.gz` | `community.grafana.com` | `raw/126448/1` | Grafana-Community-ToS | `sha2563732b40b24fec1b52b41e71d8da8335486edbfb0bbbc73f5cb890d310a21b07a` | 2026-11-10T01:53:12Z |

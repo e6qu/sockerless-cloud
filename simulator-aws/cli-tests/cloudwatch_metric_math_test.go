@@ -102,6 +102,29 @@ func TestCloudWatchCLI_MetricMathExpressions(t *testing.T) {
 	errOut := runCLIExpectError(t, awsCLI("cloudwatch", "get-metric-data", "--metric-data-queries", `[{"Id":"e1","Expression":"NO_SUCH_FUNCTION(1)"}]`,
 		"--start-time", t0.Format(time.RFC3339), "--end-time", t0.Add(5*time.Minute).Format(time.RFC3339)))
 	assert.Contains(t, errOut, "ValidationError")
+
+	refusals := map[string]string{
+		"FILL(t5xx, 0)":      "Error in expression 'e1': ID 't5xx' not found",
+		"SUM(metric1)":       "Error in expression 'e1': The return value of the expression must be TimeSeries or Array[TimeSeries]",
+		"MAX([metric1, 1])":  "Error in expression 'e1': Unsupported operand type(s) for MAX: '[Array[TimeSeries, Scalar]]'",
+		"PERIOD(METRICS())":  "Error in expression 'e1': Unsupported operand type(s) for PERIOD: '[Array[TimeSeries]]'",
+		"TIME_SERIES(1, 2)":  "Error in expression 'e1': Unsupported operand type(s) for TIME_SERIES: '[Scalar, Scalar]'",
+		"ABS([metric1, 2])":  "Error in expression 'e1': Unsupported operand type(s) for ABS: '[Array[TimeSeries, Scalar]]'",
+		"FIRST(metric1)":     "Error in expression 'e1': Unsupported operand type(s) for FIRST: '[TimeSeries]'",
+		"REMOVE_EMPTY(3)":    "Error in expression 'e1': Unsupported operand type(s) for REMOVE_EMPTY: '[Scalar]'",
+		"DATAPOINT_COUNT(1)": "Error in expression 'e1': Unsupported operand type(s) for DATAPOINT_COUNT: '[Scalar]'",
+	}
+	for expr, want := range refusals {
+		queries, err := json.Marshal([]map[string]any{cliMetric("metric1", ns, "One"), {"Id": "e1", "Expression": expr}})
+		require.NoError(t, err)
+		errOut := runCLIExpectError(t, awsCLI("cloudwatch", "get-metric-data", "--metric-data-queries", string(queries),
+			"--start-time", t0.Format(time.RFC3339), "--end-time", t0.Add(5*time.Minute).Format(time.RFC3339)))
+		assert.Contains(t, errOut, want, expr)
+	}
+	errOut = runCLIExpectError(t, awsCLI("cloudwatch", "get-metric-data", "--metric-data-queries",
+		fmt.Sprintf(`[{"Id":"q1","Period":60,"Expression":"SELECT P99(Latency) FROM \"%s\""}]`, ns),
+		"--start-time", t0.Format(time.RFC3339), "--end-time", t0.Add(5*time.Minute).Format(time.RFC3339)))
+	assert.Contains(t, errOut, "Error in expression 'q1': Invalid syntax. 'P99' is not a valid aggregate function")
 }
 
 // TestCloudWatchCLI_MetricMathAnomalyDetector creates a metric math anomaly

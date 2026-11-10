@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,11 +90,14 @@ func (s cwMetricSeries) derive() cwMetricSeries {
 }
 
 // A metric math value is a scalar (S), a time series (TS), an array of time
-// series (TS[]), a string or a bare keyword such as REPEAT or DESC.
+// series (TS[]), a string or a bare keyword such as REPEAT or DESC. An array
+// literal that also holds numbers keeps its element types in mixed, and no
+// function takes it.
 type cwMathValue struct {
 	scalar  *float64
 	series  []cwMetricSeries
 	array   bool
+	mixed   []string
 	text    *string
 	keyword string
 	boolean *bool
@@ -110,8 +115,48 @@ func cwArrayValue(s []cwMetricSeries) cwMathValue {
 }
 
 func (v cwMathValue) isSeries() bool {
-	return v.scalar == nil && v.text == nil && v.keyword == "" && v.boolean == nil
+	return v.scalar == nil && v.text == nil && v.keyword == "" && v.boolean == nil && v.mixed == nil
 }
+
+// operandType names a value as CloudWatch's refusals do: Scalar, TimeSeries,
+// Array[TimeSeries], or an array literal's element types, Array[TimeSeries,
+// Scalar]. ok is false for a string, a keyword or a Boolean, which no capture
+// names.
+func (v cwMathValue) operandType() (string, bool) {
+	switch {
+	case v.mixed != nil:
+		return "Array[" + strings.Join(v.mixed, ", ") + "]", true
+	case v.scalar != nil:
+		return "Scalar", true
+	case !v.isSeries():
+		return "", false
+	case v.array:
+		return "Array[TimeSeries]", true
+	}
+	return "TimeSeries", true
+}
+
+// cwUnsupportedOperands refuses a function's arguments as CloudWatch does:
+// "Unsupported operand type(s) for PERIOD: '[Array[TimeSeries]]'", as the
+// vendored Grafana community posts quote it. Where an argument has no
+// captured type name, fallback stands.
+func cwUnsupportedOperands(name string, args []cwMathValue, fallback error) error {
+	types := make([]string, 0, len(args))
+	for _, a := range args {
+		t, ok := a.operandType()
+		if !ok {
+			return fallback
+		}
+		types = append(types, t)
+	}
+	return cwCloudText(fmt.Sprintf("Unsupported operand type(s) for %s: '[%s]'", name, strings.Join(types, ", ")))
+}
+
+// cwCloudText is a refusal in CloudWatch's own words, which start with a
+// capital letter.
+type cwCloudText string
+
+func (t cwCloudText) Error() string { return string(t) }
 
 func (v cwMathValue) isSingle() bool { return v.isSeries() && !v.array && len(v.series) == 1 }
 
@@ -128,6 +173,17 @@ func (e *cwMetricMathError) Error() string { return e.msg }
 
 func cwMathErrorf(format string, args ...any) error {
 	return &cwMetricMathError{msg: fmt.Sprintf(format, args...)}
+}
+
+// cwExpressionError names the expression a refusal arose in, "Error in
+// expression 'e1': ID 'm9' not found", unless an expression it reads already
+// named itself.
+func cwExpressionError(id string, err error) error {
+	var named *cwMetricMathError
+	if errors.As(err, &named) {
+		return err
+	}
+	return cwMathErrorf("Error in expression '%s': %s", id, err.Error())
 }
 
 // cwStatSeries aggregates a stored metric over [start, end) into period
@@ -222,7 +278,7 @@ func cwEvaluateMetricQueries(opts cwMathOptions, queries []CWMetricDataQuery, st
 			continue
 		}
 		if !v.isSeries() {
-			return nil, cwMathErrorf("Error in expression %s: the expression returns a scalar, not a time series.", q.Id)
+			return nil, cwMathErrorf("Error in expression '%s': The return value of the expression must be TimeSeries or Array[TimeSeries]", q.Id)
 		}
 		for _, s := range v.series {
 			out = append(out, cwMetricResult{Id: q.Id, Label: cwResultLabel(q, v, s), Series: s})
@@ -285,10 +341,10 @@ func (ev *cwMetricEvaluator) value(id string) (cwMathValue, error) {
 	}
 	q, ok := ev.queries[id]
 	if !ok {
-		return cwMathValue{}, cwMathErrorf("Unrecognized metric or expression id %q.", id)
+		return cwMathValue{}, cwMathErrorf("ID '%s' not found", id)
 	}
 	if ev.active[id] {
-		return cwMathValue{}, cwMathErrorf("Error in expression %s: circular reference.", id)
+		return cwMathValue{}, cwMathErrorf("Error in expression '%s': circular reference.", id)
 	}
 	ev.active[id] = true
 	defer delete(ev.active, id)
@@ -301,16 +357,16 @@ func (ev *cwMetricEvaluator) value(id string) (cwMathValue, error) {
 		var err error
 		v, err = ev.metricsInsights(q)
 		if err != nil {
-			return cwMathValue{}, cwMathErrorf("Error in expression %s: %s", id, err.Error())
+			return cwMathValue{}, cwExpressionError(id, err)
 		}
 	default:
 		node, err := cwParseMetricExpression(q.Expression)
 		if err != nil {
-			return cwMathValue{}, cwMathErrorf("Error in expression %s: %s", id, err.Error())
+			return cwMathValue{}, cwExpressionError(id, err)
 		}
 		v, err = ev.eval(node, q)
 		if err != nil {
-			return cwMathValue{}, cwMathErrorf("Error in expression %s: %s", id, err.Error())
+			return cwMathValue{}, cwExpressionError(id, err)
 		}
 	}
 	ev.values[id] = v
@@ -618,18 +674,31 @@ func (ev *cwMetricEvaluator) eval(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 			b := n.name == "true"
 			return cwMathValue{boolean: &b}, nil
 		}
-		return cwMathValue{}, fmt.Errorf("unrecognized metric or expression id %q", n.name)
+		return cwMathValue{}, fmt.Errorf("ID '%s' not found", n.name)
 	case "array":
 		var all []cwMetricSeries
+		var kinds []string
+		mixed := false
 		for _, item := range n.args {
 			v, err := ev.eval(item, q)
 			if err != nil {
 				return cwMathValue{}, err
 			}
-			if !v.isSeries() {
+			kind := "TimeSeries"
+			switch {
+			case v.scalar != nil:
+				kind, mixed = "Scalar", true
+			case !v.isSeries():
 				return cwMathValue{}, fmt.Errorf("an array holds only time series")
+			default:
+				all = append(all, v.series...)
 			}
-			all = append(all, v.series...)
+			if !slices.Contains(kinds, kind) {
+				kinds = append(kinds, kind)
+			}
+		}
+		if mixed {
+			return cwMathValue{array: true, mixed: kinds}, nil
 		}
 		return cwArrayValue(all), nil
 	case "neg":

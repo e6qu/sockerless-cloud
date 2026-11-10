@@ -173,7 +173,7 @@ func cwValidateMathAnomalyQueries(queries []CWMetricDataQuery) *cwAnomalyProblem
 			}
 			node, err := cwParseMetricExpression(q.Expression)
 			if err != nil {
-				return cwAnomalyFail("InvalidParameterValue", "Error in expression %s: %s", q.Id, err.Error())
+				return cwAnomalyFail("InvalidParameterValue", "Error in expression '%s': %s", q.Id, err.Error())
 			}
 			for _, fn := range []string{"METRICS", "SEARCH", "DB_PERF_INSIGHTS"} {
 				if cwCallsFunction(node, fn) {
@@ -592,10 +592,14 @@ func cwAnomalyDetectorDocument(d CWAnomalyDetector, timestamp func(int64) any) m
 		configuration["OutlierFilteringStrength"] = d.Configuration.OutlierFilteringStrength
 	}
 	out := map[string]any{
-		"AnomalyDetectorId":     d.Id,
-		"Configuration":         configuration,
-		"MetricCharacteristics": cwAnomalyCharacteristics(d),
-		"StateValue":            d.state(),
+		"AnomalyDetectorId": d.Id,
+		"Configuration":     configuration,
+		"StateValue":        d.state(),
+	}
+	// LocalStack's AWS-validated snapshot describes a detector created without
+	// MetricCharacteristics with none.
+	if d.PeriodicSpikes != nil {
+		out["MetricCharacteristics"] = map[string]any{"PeriodicSpikes": *d.PeriodicSpikes}
 	}
 	if d.kind() == cwAnomalyMetricMath {
 		out["MetricMathAnomalyDetector"] = map[string]any{"MetricDataQueries": d.MathQueries}
@@ -608,14 +612,6 @@ func cwAnomalyDetectorDocument(d CWAnomalyDetector, timestamp func(int64) any) m
 		"MetricName": d.MetricName,
 		"Dimensions": dims,
 		"Stat":       d.Stat,
-	}
-	return out
-}
-
-func cwAnomalyCharacteristics(d CWAnomalyDetector) map[string]any {
-	out := map[string]any{}
-	if d.PeriodicSpikes != nil {
-		out["PeriodicSpikes"] = *d.PeriodicSpikes
 	}
 	return out
 }
@@ -827,11 +823,11 @@ func handleCWQueryDescribeAnomalyDetectors(w http.ResponseWriter, r *http.Reques
 		if d.Configuration.OutlierFilteringStrength != "" {
 			b = cwQueryAppendf(b, "<OutlierFilteringStrength>%s</OutlierFilteringStrength>", d.Configuration.OutlierFilteringStrength)
 		}
-		b = append(b, "</Configuration><MetricCharacteristics>"...)
+		b = append(b, "</Configuration>"...)
 		if d.PeriodicSpikes != nil {
-			b = cwQueryAppendf(b, "<PeriodicSpikes>%t</PeriodicSpikes>", *d.PeriodicSpikes)
+			b = cwQueryAppendf(b, "<MetricCharacteristics><PeriodicSpikes>%t</PeriodicSpikes></MetricCharacteristics>", *d.PeriodicSpikes)
 		}
-		b = cwQueryAppendf(b, "</MetricCharacteristics><StateValue>%s</StateValue></member>", d.state())
+		b = cwQueryAppendf(b, "<StateValue>%s</StateValue></member>", d.state())
 	}
 	b = append(b, "</AnomalyDetectors>"...)
 	if next != "" {

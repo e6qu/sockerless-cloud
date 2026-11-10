@@ -50,8 +50,11 @@ A specification states shapes, not behaviour. The EC2 model says
 say the instance waits in `pending` until its machine boots, or that a deleted
 AWS KMS key waits out a seven-to-thirty-day pending window. That comes from the
 vendored documentation pages. Where they're silent too, the simulator matches a
-capture from the real cloud. Until a capture exists, a `BUGS.md` row records
-the gap and the reasoning behind the chosen behaviour.
+capture from the real cloud. A verbatim public record of the cloud's answer to
+a real client counts as one: `scripts/fetch-cloudwatch-captures.sh` vendors
+LocalStack's AWS-validated snapshot files, pinned at their commit, and forum
+posts quoting a response, pinned at their SHA-256. Until a capture exists, a
+`BUGS.md` row records the gap and the reasoning behind the chosen behaviour.
 
 ### Corrections: supplements
 

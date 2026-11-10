@@ -29,7 +29,9 @@
   their records, classified under their data sources (BUG-3983); capture the
   anomaly detection, metric math, widget, Contributor Insights, scheduled
   query, import and data protection findings details no source states
-  (BUG-3951, BUG-3952, BUG-3982); serve AWS usage metrics, Service Quotas and
+  (BUG-3951, BUG-3952, BUG-3982), the `AlarmRule` refusals and tag
+  propagation details no public record shows (BUG-3909, BUG-3544), and vendor
+  the two GitHub-quoted metric math refusals BUG-3951 cites; serve AWS usage metrics, Service Quotas and
   Performance Insights so `SERVICE_QUOTA` and `DB_PERF_INSIGHTS` evaluate,
   and page `GetMetricData` (BUG-3990).
 - **Core-service gaps.** Azure Managed Disks as block devices (BUG-3931),
