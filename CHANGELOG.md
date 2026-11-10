@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.9.0](https://github.com/e6qu/sockerless-cloud/compare/v3.8.0...v3.9.0) (2026-11-10)
+
+
+### Features
+
+* **aws:** deliver CloudWatch Logs subscription filters ([#409](https://github.com/e6qu/sockerless-cloud/issues/409)) ([268abdb](https://github.com/e6qu/sockerless-cloud/commit/268abdb414c1f403f670b0ec65dad6e45415e2cc))
+
 ## [3.8.0](https://github.com/e6qu/sockerless-cloud/compare/v3.7.0...v3.8.0) (2026-11-09)
 
 
