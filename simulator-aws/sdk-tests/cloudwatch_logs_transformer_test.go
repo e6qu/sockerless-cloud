@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -62,12 +63,59 @@ func TestLogs_TestTransformerProcessors(t *testing.T) {
 
 	_, err = cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
 		TransformerConfig: []cwlogtypes.Processor{
-			{ParseToOCSF: &cwlogtypes.ParseToOCSF{EventSource: cwlogtypes.EventSourceVpcFlow, OcsfVersion: cwlogtypes.OCSFVersionV11}},
+			{ParseToOCSF: &cwlogtypes.ParseToOCSF{EventSource: cwlogtypes.EventSourceCloudTrail, OcsfVersion: cwlogtypes.OCSFVersionV15, MappingVersion: aws.String("1.4.0")}},
 		},
 		LogEventMessages: []string{"x"},
 	})
-	var invalidOp *cwlogtypes.InvalidOperationException
-	require.True(t, errors.As(err, &invalidOp), "parseToOCSF: %v", err)
+	require.True(t, errors.As(err, &invalid), "parseToOCSF offers mapping version 1.5.0 only: %v", err)
+}
+
+// parseToOCSF converts a flow log record written in the default format to
+// an OCSF Network Activity event, as the Amazon Security Lake mapping for
+// VPC Flow Logs maps it.
+func TestLogs_TestTransformerParseToOCSF(t *testing.T) {
+	t.Parallel()
+	cw := cwLogsClient()
+	flow := "2 123456789010 eni-1235b8ca123456789 172.31.16.139 172.31.16.21 20641 22 6 20 4249 1418530010 1418530070 REJECT OK"
+	out, err := cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
+		TransformerConfig: []cwlogtypes.Processor{
+			{ParseToOCSF: &cwlogtypes.ParseToOCSF{EventSource: cwlogtypes.EventSourceVpcFlow, OcsfVersion: cwlogtypes.OCSFVersionV15, MappingVersion: aws.String("1.5.0")}},
+		},
+		LogEventMessages: []string{flow, "not a flow log record"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.TransformedLogs, 2)
+	var ev map[string]any
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(out.TransformedLogs[0].TransformedEventMessage)), &ev))
+	assert.Equal(t, 4001.0, ev["class_uid"])
+	assert.Equal(t, "Refuse", ev["activity_name"])
+	assert.Equal(t, 400105.0, ev["type_uid"])
+	assert.Equal(t, "Denied", ev["action"])
+	assert.Equal(t, "Blocked", ev["disposition"])
+	assert.Equal(t, 1418530010000.0, ev["time"])
+	assert.Equal(t, "2014-12-14T04:06:50.000Z", ev["time_dt"])
+	assert.Equal(t, map[string]any{"ip": "172.31.16.139", "port": 20641.0}, ev["src_endpoint"])
+	assert.Equal(t, map[string]any{"uid": "123456789010"}, ev["cloud"].(map[string]any)["account"])
+	assert.Equal(t, map[string]any{"interface_id": "eni-1235b8ca123456789"}, ev["unmapped"])
+	assert.Equal(t, "1.5.0", ev["metadata"].(map[string]any)["version"])
+	assert.Nil(t, out.TransformedLogs[1].TransformedEventMessage, "a record that is not a default-format flow log does not convert")
+
+	trail := `{"eventVersion":"1.08","userIdentity":{"type":"IAMUser","principalId":"AIDAEXAMPLE","arn":"arn:aws:iam::111122223333:user/anaya","accountId":"111122223333","userName":"anaya"},` +
+		`"eventTime":"2023-11-10T16:24:34Z","eventSource":"signin.amazonaws.com","eventName":"ConsoleLogin","awsRegion":"us-east-1","sourceIPAddress":"192.0.2.0",` +
+		`"responseElements":{"ConsoleLogin":"Success"},"additionalEventData":{"MFAUsed":"Yes"},"eventID":"fed06f42","eventType":"AwsConsoleSignIn","recipientAccountId":"111122223333"}`
+	out, err = cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
+		TransformerConfig: []cwlogtypes.Processor{
+			{ParseToOCSF: &cwlogtypes.ParseToOCSF{EventSource: cwlogtypes.EventSourceCloudTrail, OcsfVersion: cwlogtypes.OCSFVersionV11}},
+		},
+		LogEventMessages: []string{trail},
+	})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(out.TransformedLogs[0].TransformedEventMessage)), &ev))
+	assert.Equal(t, 3002.0, ev["class_uid"], "a console sign-in is an Authentication event")
+	assert.Equal(t, "Logon", ev["activity_name"])
+	assert.Equal(t, true, ev["is_mfa"])
+	assert.Equal(t, "Success", ev["status"])
+	assert.Equal(t, map[string]any{"recipientAccountId": "111122223333"}, ev["unmapped"], "the 1.1.0 mapping does not map recipientAccountId")
 }
 
 // GetLogEvents and FilterLogEvents return events as ingested; CloudWatch Logs
@@ -112,6 +160,7 @@ func TestLogs_TransformerAppliedAtIngestion(t *testing.T) {
 		MetricTransformations: []cwlogtypes.MetricTransformation{{
 			MetricName: aws.String("TransformedErrors"), MetricNamespace: aws.String("Test/LogsTransformer"), MetricValue: aws.String("1"),
 		}},
+		ApplyOnTransformedLogs: true,
 	})
 	require.NoError(t, err)
 
@@ -199,4 +248,81 @@ func TestLogs_TransformerAppliedAtIngestion(t *testing.T) {
 		TransformerConfig:  []cwlogtypes.Processor{{ParseJSON: &cwlogtypes.ParseJSON{}}},
 	})
 	require.True(t, errors.As(err, &notFound), "a transformer needs an existing log group: %v", err)
+}
+
+// substituteString compiles from as a java.util.regex.Pattern, with the
+// guide's (?P<name>...) groups: lookaround, backreferences, possessive
+// quantifiers and Java's ASCII \w all hold.
+func TestLogs_SubstituteStringTakesJavaPatterns(t *testing.T) {
+	t.Parallel()
+	cw := cwLogsClient()
+	entry := func(source, from, to string) cwlogtypes.SubstituteStringEntry {
+		return cwlogtypes.SubstituteStringEntry{Source: aws.String(source), From: aws.String(from), To: aws.String(to)}
+	}
+	out, err := cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
+		TransformerConfig: []cwlogtypes.Processor{
+			{ParseJSON: &cwlogtypes.ParseJSON{}},
+			{SubstituteString: &cwlogtypes.SubstituteString{Entries: []cwlogtypes.SubstituteStringEntry{
+				entry("price", `(?<=\$)\d+`, "N"),
+				entry("doubled", `(\w)\1`, "<$1>"),
+				entry("greedy", `a++a`, "X"),
+				entry("arn", `^arn:aws:sts::(?P<account_id>\d{12}):assumed-role/(?P<role_name>[\w+=,.@-]+)/(?P<role_session_name>[\w+=,.@-]+)$`,
+					"${account_id}:${role_name}:${role_session_name}"),
+				entry("word", `\w+`, "W"),
+			}}},
+		},
+		LogEventMessages: []string{`{"price":"cost $15 and 20","doubled":"aabbcd","greedy":"aaaa",` +
+			`"arn":"arn:aws:sts::123456789012:assumed-role/MyImportantRole/MySession","word":"café"}`},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.TransformedLogs, 1)
+	assert.JSONEq(t, `{"price":"cost $N and 20","doubled":"<a><b>cd","greedy":"aaaa",`+
+		`"arn":"123456789012:MyImportantRole:MySession","word":"Wé"}`, aws.ToString(out.TransformedLogs[0].TransformedEventMessage))
+
+	_, err = cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
+		TransformerConfig: []cwlogtypes.Processor{
+			{ParseJSON: &cwlogtypes.ParseJSON{}},
+			{SubstituteString: &cwlogtypes.SubstituteString{Entries: []cwlogtypes.SubstituteStringEntry{entry("a", `(?<=a*)b`, "x")}}},
+		},
+		LogEventMessages: []string{`{"a":"b"}`},
+	})
+	var invalid *cwlogtypes.InvalidParameterException
+	require.True(t, errors.As(err, &invalid), "Pattern refuses an unbounded look-behind: %v", err)
+}
+
+// dateTimeConverter reads and writes java.time.format.DateTimeFormatter
+// patterns with Java SE 17's locale data: zone names, optional sections,
+// week fields and the names of any CLDR locale.
+func TestLogs_DateTimeConverterJavaPatterns(t *testing.T) {
+	t.Parallel()
+	cw := cwLogsClient()
+	convert := func(c cwlogtypes.DateTimeConverter, value string) string {
+		t.Helper()
+		c.Source, c.Target = aws.String("in"), aws.String("out")
+		out, err := cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
+			TransformerConfig: []cwlogtypes.Processor{{ParseJSON: &cwlogtypes.ParseJSON{}}, {DateTimeConverter: &c}},
+			LogEventMessages:  []string{`{"in":"` + value + `"}`},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.TransformedLogs, 1)
+		require.NotNil(t, out.TransformedLogs[0].TransformedEventMessage, "%s does not convert", value)
+		var ev map[string]string
+		require.NoError(t, json.Unmarshal([]byte(aws.ToString(out.TransformedLogs[0].TransformedEventMessage)), &ev))
+		return ev["out"]
+	}
+	assert.Equal(t, "2023-08-03T16:34:56.000Z", convert(cwlogtypes.DateTimeConverter{
+		MatchPatterns: []string{"dd MMM yyyy HH:mm:ss z"}, Locale: aws.String("en"),
+	}, "03 Aug 2023 12:34:56 EDT"))
+	assert.Equal(t, "09:00 BRT", convert(cwlogtypes.DateTimeConverter{
+		MatchPatterns: []string{"uuuu-MM-dd'T'HH:mm[:ss]X"}, Locale: aws.String("en"),
+		TargetTimezone: aws.String("America/Sao_Paulo"), TargetFormat: aws.String("HH:mm z"),
+	}, "2023-07-15T12:00Z"))
+	assert.Equal(t, "samedi 5 décembre 1998, 4e trimestre", convert(cwlogtypes.DateTimeConverter{
+		MatchPatterns: []string{"yyyy-MM-dd"}, Locale: aws.String("fr"),
+		TargetFormat: aws.String("EEEE d MMMM yyyy, QQQQ"),
+	}, "1998-12-05"))
+	assert.Equal(t, "2022-W52-7", convert(cwlogtypes.DateTimeConverter{
+		MatchPatterns: []string{"yyyy-MM-dd"}, Locale: aws.String("de-DE"),
+		TargetFormat: aws.String("YYYY-'W'ww-e"),
+	}, "2023-01-01"))
 }

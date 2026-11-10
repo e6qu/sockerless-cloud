@@ -17,7 +17,6 @@ import (
 //	"associate-source-to-s3-table-integration"
 //	"disassociate-source-from-s3-table-integration"
 //	"list-sources-for-s3-table-integration"
-//	"get-log-fields"
 //	"put-bearer-token-authentication"
 
 func TestLogsListLogGroupsForQueryCLI(t *testing.T) {

@@ -1,12 +1,14 @@
 package aws_sdk_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cwlogtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -210,41 +212,6 @@ func TestLogs_TransformerRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestLogs_ImportTaskRoundTrip(t *testing.T) {
-	t.Parallel()
-	cw := cwLogsClient()
-	create, err := cw.CreateImportTask(ctx, &cloudwatchlogs.CreateImportTaskInput{
-		ImportSourceArn: aws.String("arn:aws:s3:::test-import-bucket"),
-		ImportRoleArn:   aws.String("arn:aws:iam::123456789012:role/import-role"),
-	})
-	require.NoError(t, err)
-	id := aws.ToString(create.ImportId)
-	require.NotEmpty(t, id)
-	require.NotEmpty(t, aws.ToString(create.ImportDestinationArn))
-
-	desc, err := cw.DescribeImportTasks(ctx, &cloudwatchlogs.DescribeImportTasksInput{
-		ImportId: aws.String(id),
-	})
-	require.NoError(t, err)
-	require.Len(t, desc.Imports, 1)
-	assert.Equal(t, cwlogtypes.ImportStatusCompleted, desc.Imports[0].ImportStatus)
-
-	batches, err := cw.DescribeImportTaskBatches(ctx, &cloudwatchlogs.DescribeImportTaskBatchesInput{
-		ImportId: aws.String(id),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, id, aws.ToString(batches.ImportId))
-	require.NotEmpty(t, batches.ImportBatches)
-
-	cancel, err := cw.CancelImportTask(ctx, &cloudwatchlogs.CancelImportTaskInput{
-		ImportId: aws.String(id),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, id, aws.ToString(cancel.ImportId))
-}
-
-// TestLogs_LogStructureReads expects empty fields and record from a group with
-// no stored events.
 func TestLogs_LogStructureReads(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -270,72 +237,13 @@ func TestLogs_LogStructureReads(t *testing.T) {
 		DeletionProtectionEnabled: aws.Bool(true),
 	})
 	require.NoError(t, err)
-}
-
-func TestLogs_AnomalyOps(t *testing.T) {
-	t.Parallel()
-	cw := cwLogsClient()
-	lg := "test-anomaly-lg"
-	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(lg)})
-	require.NoError(t, err)
-	defer cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(lg)})
-
-	createDet, err := cw.CreateLogAnomalyDetector(ctx, &cloudwatchlogs.CreateLogAnomalyDetectorInput{
-		LogGroupArnList:     []string{"arn:aws:logs:us-east-1:123456789012:log-group:" + lg},
-		DetectorName:        aws.String("test-anomaly-detector"),
-		EvaluationFrequency: cwlogtypes.EvaluationFrequencyOneHour,
-	})
-	require.NoError(t, err)
-	arn := aws.ToString(createDet.AnomalyDetectorArn)
-	require.NotEmpty(t, arn)
-	defer cw.DeleteLogAnomalyDetector(ctx, &cloudwatchlogs.DeleteLogAnomalyDetectorInput{
-		AnomalyDetectorArn: aws.String(arn),
-	})
-
-	status := func() cwlogtypes.AnomalyDetectorStatus {
-		t.Helper()
-		got, err := cw.GetLogAnomalyDetector(ctx, &cloudwatchlogs.GetLogAnomalyDetectorInput{
-			AnomalyDetectorArn: aws.String(arn),
-		})
-		require.NoError(t, err)
-		listed, err := cw.ListLogAnomalyDetectors(ctx, &cloudwatchlogs.ListLogAnomalyDetectorsInput{
-			FilterLogGroupArn: aws.String("arn:aws:logs:us-east-1:123456789012:log-group:" + lg),
-		})
-		require.NoError(t, err)
-		require.Len(t, listed.AnomalyDetectors, 1)
-		assert.Equal(t, got.AnomalyDetectorStatus, listed.AnomalyDetectors[0].AnomalyDetectorStatus)
-		assert.Contains(t, got.AnomalyDetectorStatus.Values(), got.AnomalyDetectorStatus)
-		return got.AnomalyDetectorStatus
-	}
-	initial := status()
-	assert.Equal(t, cwlogtypes.AnomalyDetectorStatusInitializing, initial)
-
-	_, err = cw.UpdateLogAnomalyDetector(ctx, &cloudwatchlogs.UpdateLogAnomalyDetectorInput{
-		AnomalyDetectorArn: aws.String(arn),
-		Enabled:            aws.Bool(false),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, cwlogtypes.AnomalyDetectorStatusPaused, status())
-
-	_, err = cw.UpdateLogAnomalyDetector(ctx, &cloudwatchlogs.UpdateLogAnomalyDetectorInput{
-		AnomalyDetectorArn:  aws.String(arn),
-		EvaluationFrequency: cwlogtypes.EvaluationFrequencyFifteenMin,
-		Enabled:             aws.Bool(true),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, initial, status(), "restarting a paused detector resumes its status")
-
-	list, err := cw.ListAnomalies(ctx, &cloudwatchlogs.ListAnomaliesInput{
-		AnomalyDetectorArn: aws.String(arn),
-	})
-	require.NoError(t, err)
-	assert.Empty(t, list.Anomalies, "fresh detector has no anomalies")
-
-	// UpdateAnomaly validates that the detector exists even with no anomalies.
-	_, err = cw.UpdateAnomaly(ctx, &cloudwatchlogs.UpdateAnomalyInput{
-		AnomalyDetectorArn: aws.String(arn),
-		PatternId:          aws.String("pattern-1"),
-		SuppressionType:    cwlogtypes.SuppressionTypeInfinite,
+	_, err = cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(lg)})
+	var refused smithy.APIError
+	require.True(t, errors.As(err, &refused), "deletion protection refuses DeleteLogGroup: %v", err)
+	assert.Equal(t, "ValidationException", refused.ErrorCode())
+	_, err = cw.PutLogGroupDeletionProtection(ctx, &cloudwatchlogs.PutLogGroupDeletionProtectionInput{
+		LogGroupIdentifier:        aws.String(lg),
+		DeletionProtectionEnabled: aws.Bool(false),
 	})
 	require.NoError(t, err)
 }
@@ -360,10 +268,4 @@ func TestLogs_ListLogGroupsOps(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "log group should appear in ListLogGroups")
-
-	agg, err := cw.ListAggregateLogGroupSummaries(ctx, &cloudwatchlogs.ListAggregateLogGroupSummariesInput{
-		GroupBy: cwlogtypes.ListAggregateLogGroupSummariesGroupByDataSourceNameAndType,
-	})
-	require.NoError(t, err)
-	assert.Empty(t, agg.AggregateLogGroupSummaries, "no data-source aggregates without integrations")
 }

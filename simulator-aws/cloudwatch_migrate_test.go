@@ -40,3 +40,54 @@ func TestCloudWatchLogsMigratesLegacyStreamRows(t *testing.T) {
 		t.Fatalf("legacy stream rows left: %d %v", len(rows), err)
 	}
 }
+
+// A log group an earlier build protected from deletion, or gave a data
+// protection policy, reads back with both after the upgrade.
+func TestCloudWatchLogsMigratesLogGroupProtection(t *testing.T) {
+	db := migrateTestDB(t)
+	groups, policies := cwLogGroups, cwDataProtection
+	t.Cleanup(func() { cwLogGroups, cwDataProtection = groups, policies })
+	cwLogGroups = sim.MakeStore[CWLogGroup](db, "cw_log_groups")
+	cwDataProtection = sim.MakeStore[CWDataProtectionPolicy](db, "cw_data_protection")
+	cwLogGroups.Put("/protected", CWLogGroup{LogGroupName: "/protected"})
+	cwLogGroups.Put("/masked", CWLogGroup{LogGroupName: "/masked"})
+	legacyStore[bool](t, db, "cw_deletion_protection").Put("/protected", true)
+	cwDataProtection.Put("/masked", CWDataProtectionPolicy{LogGroupName: "/masked", PolicyDocument: "{}"})
+
+	if err := cwMigrateLogGroupProtection(db); err != nil {
+		t.Fatal(err)
+	}
+
+	if g, _ := cwLogGroups.Get("/protected"); !g.DeletionProtectionEnabled {
+		t.Fatalf("migrated protected group = %+v", g)
+	}
+	if g, _ := cwLogGroups.Get("/masked"); g.DataProtectionStatus != "ACTIVATED" || g.DeletionProtectionEnabled {
+		t.Fatalf("migrated group with a data protection policy = %+v", g)
+	}
+	_, rows, err := sim.LegacyRows[bool](db, "cw_deletion_protection")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("legacy deletion protection rows left: %d %v", len(rows), err)
+	}
+}
+
+// Events an earlier build stored without an ID each get one, which reads
+// return from then on.
+func TestCloudWatchLogsMigratesEventIDs(t *testing.T) {
+	db := migrateTestDB(t)
+	events := cwLogEvents
+	t.Cleanup(func() { cwLogEvents = events })
+	cwLogEvents = cwNewLogEvents(db)
+	key := cwEventsKey("/g", "s")
+	cwPutTestEvents(key, []CWLogEvent{{Timestamp: 1000, IngestionTime: 1100, Message: "a"}, {Timestamp: 2000, IngestionTime: 2100, Message: "b"}})
+	if err := cwMigrateLogEventIDs(db); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := cwStreamEvents(key)
+	if len(got) != 2 || got[0].ID == "" || got[0].ID == got[1].ID {
+		t.Fatalf("migrated events = %+v", got)
+	}
+	again, _ := cwStreamEvents(key)
+	if again[0].ID != got[0].ID {
+		t.Fatalf("an event's ID changed between reads: %s, %s", got[0].ID, again[0].ID)
+	}
+}

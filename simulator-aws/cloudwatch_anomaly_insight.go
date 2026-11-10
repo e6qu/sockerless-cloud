@@ -3,20 +3,12 @@ package main
 import (
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Anomaly detectors have no name: (Namespace, MetricName, Stat, Dimensions)
-// identifies one. Insight rules are named, ENABLED or DISABLED.
-
-// The simulator trains no model, so a detector reports PENDING_TRAINING.
-type CWAnomalyDetector struct {
-	Namespace  string        `json:"Namespace"`
-	MetricName string        `json:"MetricName"`
-	Stat       string        `json:"Stat"`
-	Dimensions []CWDimension `json:"Dimensions,omitempty"`
-}
+// Insight rules are named, ENABLED or DISABLED.
 
 type CWInsightRule struct {
 	Name                   string            `json:"Name"`
@@ -25,36 +17,10 @@ type CWInsightRule struct {
 	Definition             string            `json:"Definition"`
 	ApplyOnTransformedLogs bool              `json:"ApplyOnTransformedLogs"`
 	Tags                   map[string]string `json:"-"`
+	EnabledWindows         []CWInsightWindow `json:"EnabledWindows,omitempty"`
 }
 
-var (
-	cwAnomalyDetectors sim.Store[CWAnomalyDetector]
-	cwInsightRules     sim.Store[CWInsightRule]
-)
-
-func cwAnomalyKey(namespace, metricName, stat string, dims []CWDimension) string {
-	return metricsKey(namespace, metricName, dims) + "/stat=" + stat
-}
-
-func cwListAnomalyDetectors(namespace, metricName string) []CWAnomalyDetector {
-	out := make([]CWAnomalyDetector, 0)
-	for _, d := range cwAnomalyDetectors.List() {
-		if namespace != "" && d.Namespace != namespace {
-			continue
-		}
-		if metricName != "" && d.MetricName != metricName {
-			continue
-		}
-		out = append(out, d)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Namespace != out[j].Namespace {
-			return out[i].Namespace < out[j].Namespace
-		}
-		return out[i].MetricName < out[j].MetricName
-	})
-	return out
-}
+var cwInsightRules sim.Store[CWInsightRule]
 
 func cwInsightRuleArn(name string) string {
 	return "arn:aws:cloudwatch:" + awsRegion() + ":" + awsAccountID() + ":insight-rule/" + name
@@ -76,121 +42,31 @@ func cwListInsightRules() []CWInsightRule {
 }
 
 func cwSetInsightRulesState(names []string, state string) {
+	now := time.Now().UnixMilli()
 	for _, n := range names {
-		cwInsightRules.Update(n, func(ir *CWInsightRule) { ir.State = state })
+		cwInsightRules.Update(n, func(ir *CWInsightRule) { ir.setState(state, now) })
 	}
 }
 
+// setState opens an ENABLED window or closes the open one.
+func (ir *CWInsightRule) setState(state string, nowMillis int64) {
+	open := len(ir.EnabledWindows) > 0 && ir.EnabledWindows[len(ir.EnabledWindows)-1].To == 0
+	switch {
+	case state == "ENABLED" && !open:
+		ir.EnabledWindows = append(ir.EnabledWindows, CWInsightWindow{From: nowMillis})
+	case state != "ENABLED" && open:
+		ir.EnabledWindows[len(ir.EnabledWindows)-1].To = nowMillis
+	}
+	ir.State = state
+}
+
 func registerCloudWatchAnomalyInsightJSON(r *AWSRouter) {
-	r.Register("GraniteServiceVersion20100801.PutAnomalyDetector", handleCWJSONPutAnomalyDetector)
-	r.Register("GraniteServiceVersion20100801.DescribeAnomalyDetectors", handleCWJSONDescribeAnomalyDetectors)
-	r.Register("GraniteServiceVersion20100801.DeleteAnomalyDetector", handleCWJSONDeleteAnomalyDetector)
+	registerCloudWatchAnomalyJSON(r)
 	r.Register("GraniteServiceVersion20100801.PutInsightRule", handleCWJSONPutInsightRule)
 	r.Register("GraniteServiceVersion20100801.DescribeInsightRules", handleCWJSONDescribeInsightRules)
 	r.Register("GraniteServiceVersion20100801.EnableInsightRules", handleCWJSONEnableInsightRules)
 	r.Register("GraniteServiceVersion20100801.DisableInsightRules", handleCWJSONDisableInsightRules)
 	r.Register("GraniteServiceVersion20100801.DeleteInsightRules", handleCWJSONDeleteInsightRules)
-}
-
-type cwAnomalyDetectorReq struct {
-	Namespace                   string        `json:"Namespace"`
-	MetricName                  string        `json:"MetricName"`
-	Stat                        string        `json:"Stat"`
-	Dimensions                  []CWDimension `json:"Dimensions"`
-	SingleMetricAnomalyDetector *struct {
-		Namespace  string        `json:"Namespace"`
-		MetricName string        `json:"MetricName"`
-		Stat       string        `json:"Stat"`
-		Dimensions []CWDimension `json:"Dimensions"`
-	} `json:"SingleMetricAnomalyDetector"`
-}
-
-// Newer SDKs send the SingleMetricAnomalyDetector nesting, older ones the
-// top-level fields.
-func (req cwAnomalyDetectorReq) resolve() CWAnomalyDetector {
-	d := CWAnomalyDetector{Namespace: req.Namespace, MetricName: req.MetricName, Stat: req.Stat, Dimensions: req.Dimensions}
-	if s := req.SingleMetricAnomalyDetector; s != nil {
-		if s.Namespace != "" {
-			d.Namespace = s.Namespace
-		}
-		if s.MetricName != "" {
-			d.MetricName = s.MetricName
-		}
-		if s.Stat != "" {
-			d.Stat = s.Stat
-		}
-		if len(s.Dimensions) > 0 {
-			d.Dimensions = s.Dimensions
-		}
-	}
-	return d
-}
-
-func handleCWJSONPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
-	var req cwAnomalyDetectorReq
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
-		return
-	}
-	d := req.resolve()
-	if d.Namespace == "" || d.MetricName == "" || d.Stat == "" {
-		AWSError(w, "MissingParameter", "Namespace, MetricName and Stat are required.", http.StatusBadRequest)
-		return
-	}
-	cwAnomalyDetectors.Put(cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions), d)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWJSONDescribeAnomalyDetectors(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Namespace  string `json:"Namespace"`
-		MetricName string `json:"MetricName"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
-		return
-	}
-	out := make([]map[string]any, 0)
-	for _, d := range cwListAnomalyDetectors(req.Namespace, req.MetricName) {
-		out = append(out, cwJSONAnomalyDetector(d))
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"AnomalyDetectors": out})
-}
-
-func cwJSONAnomalyDetector(d CWAnomalyDetector) map[string]any {
-	dims := make([]map[string]string, 0, len(d.Dimensions))
-	for _, dim := range d.Dimensions {
-		dims = append(dims, map[string]string{"Name": dim.Name, "Value": dim.Value})
-	}
-	return map[string]any{
-		"Namespace":  d.Namespace,
-		"MetricName": d.MetricName,
-		"Dimensions": dims,
-		"Stat":       d.Stat,
-		"StateValue": "PENDING_TRAINING",
-		"SingleMetricAnomalyDetector": map[string]any{
-			"Namespace":  d.Namespace,
-			"MetricName": d.MetricName,
-			"Dimensions": dims,
-			"Stat":       d.Stat,
-		},
-	}
-}
-
-func handleCWJSONDeleteAnomalyDetector(w http.ResponseWriter, r *http.Request) {
-	var req cwAnomalyDetectorReq
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
-		return
-	}
-	d := req.resolve()
-	key := cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
-	if _, ok := cwAnomalyDetectors.Get(key); !ok {
-		AWSError(w, "ResourceNotFoundException", "No anomaly detector found for the given metric.", http.StatusBadRequest)
-		return
-	}
-	cwAnomalyDetectors.Delete(key)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 func handleCWJSONPutInsightRule(w http.ResponseWriter, r *http.Request) {
@@ -213,22 +89,32 @@ func handleCWJSONPutInsightRule(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "MissingParameter", "The parameter RuleDefinition is required.", http.StatusBadRequest)
 		return
 	}
-	cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags)
+	if err := cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags); err != nil {
+		AWSError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-func cwPutInsightRule(name, state, definition string, applyOnTransformed bool, tags []cwTagKV) {
+func cwPutInsightRule(name, state, definition string, applyOnTransformed bool, tags []cwTagKV) error {
+	if _, err := cwParseInsightRuleDefinition(definition); err != nil {
+		return err
+	}
 	if state == "" {
 		state = "ENABLED"
+	}
+	if state != "ENABLED" && state != "DISABLED" {
+		return cwRuleProblem("The RuleState must be ENABLED or DISABLED.")
 	}
 	existing, exists := cwInsightRules.Get(name)
 	ir := CWInsightRule{
 		Name:                   name,
-		State:                  state,
 		Schema:                 `{"Name":"CloudWatchLogRule","Version":1}`,
 		Definition:             definition,
 		ApplyOnTransformedLogs: applyOnTransformed,
+		EnabledWindows:         existing.EnabledWindows,
 	}
+	ir.setState(state, time.Now().UnixMilli())
 	if len(tags) > 0 {
 		ir.Tags = map[string]string{}
 		for _, t := range tags {
@@ -238,6 +124,7 @@ func cwPutInsightRule(name, state, definition string, applyOnTransformed bool, t
 		ir.Tags = existing.Tags
 	}
 	cwInsightRules.Put(name, ir)
+	return nil
 }
 
 func handleCWJSONDescribeInsightRules(w http.ResponseWriter, r *http.Request) {
@@ -299,113 +186,12 @@ func handleCWJSONDeleteInsightRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func registerCloudWatchAnomalyInsightCBOR(srv *sim.Server) {
-	cwCBOR(srv, "PutAnomalyDetector", handleCWCBORPutAnomalyDetector)
-	cwCBOR(srv, "DescribeAnomalyDetectors", handleCWCBORDescribeAnomalyDetectors)
-	cwCBOR(srv, "DeleteAnomalyDetector", handleCWCBORDeleteAnomalyDetector)
+	registerCloudWatchAnomalyCBOR(srv)
 	cwCBOR(srv, "PutInsightRule", handleCWCBORPutInsightRule)
 	cwCBOR(srv, "DescribeInsightRules", handleCWCBORDescribeInsightRules)
 	cwCBOR(srv, "EnableInsightRules", handleCWCBOREnableInsightRules)
 	cwCBOR(srv, "DisableInsightRules", handleCWCBORDisableInsightRules)
 	cwCBOR(srv, "DeleteInsightRules", handleCWCBORDeleteInsightRules)
-}
-
-type cwAnomalyDetectorCBORReq struct {
-	Namespace                   string        `cbor:"Namespace"`
-	MetricName                  string        `cbor:"MetricName"`
-	Stat                        string        `cbor:"Stat"`
-	Dimensions                  []CWDimension `cbor:"Dimensions"`
-	SingleMetricAnomalyDetector *struct {
-		Namespace  string        `cbor:"Namespace"`
-		MetricName string        `cbor:"MetricName"`
-		Stat       string        `cbor:"Stat"`
-		Dimensions []CWDimension `cbor:"Dimensions"`
-	} `cbor:"SingleMetricAnomalyDetector"`
-}
-
-func (req cwAnomalyDetectorCBORReq) resolve() CWAnomalyDetector {
-	d := CWAnomalyDetector{Namespace: req.Namespace, MetricName: req.MetricName, Stat: req.Stat, Dimensions: req.Dimensions}
-	if s := req.SingleMetricAnomalyDetector; s != nil {
-		if s.Namespace != "" {
-			d.Namespace = s.Namespace
-		}
-		if s.MetricName != "" {
-			d.MetricName = s.MetricName
-		}
-		if s.Stat != "" {
-			d.Stat = s.Stat
-		}
-		if len(s.Dimensions) > 0 {
-			d.Dimensions = s.Dimensions
-		}
-	}
-	return d
-}
-
-func handleCWCBORPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
-	var req cwAnomalyDetectorCBORReq
-	if !cwReadCBOR(w, r, &req) {
-		return
-	}
-	d := req.resolve()
-	if d.Namespace == "" || d.MetricName == "" || d.Stat == "" {
-		cwWriteCBORError(w, "MissingParameter", "Namespace, MetricName and Stat are required.", http.StatusBadRequest)
-		return
-	}
-	cwAnomalyDetectors.Put(cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions), d)
-	cwWriteCBOR(w, map[string]any{})
-}
-
-type cborAnomalyDetector struct {
-	Namespace                   string                     `cbor:"Namespace"`
-	MetricName                  string                     `cbor:"MetricName"`
-	Dimensions                  []CWDimension              `cbor:"Dimensions,omitempty"`
-	Stat                        string                     `cbor:"Stat"`
-	StateValue                  string                     `cbor:"StateValue"`
-	SingleMetricAnomalyDetector cborSingleMetricAnomalyDet `cbor:"SingleMetricAnomalyDetector"`
-}
-
-type cborSingleMetricAnomalyDet struct {
-	Namespace  string        `cbor:"Namespace"`
-	MetricName string        `cbor:"MetricName"`
-	Dimensions []CWDimension `cbor:"Dimensions,omitempty"`
-	Stat       string        `cbor:"Stat"`
-}
-
-func handleCWCBORDescribeAnomalyDetectors(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Namespace  string `cbor:"Namespace"`
-		MetricName string `cbor:"MetricName"`
-	}
-	if !cwReadCBOR(w, r, &req) {
-		return
-	}
-	out := make([]cborAnomalyDetector, 0)
-	for _, d := range cwListAnomalyDetectors(req.Namespace, req.MetricName) {
-		out = append(out, cborAnomalyDetector{
-			Namespace:                   d.Namespace,
-			MetricName:                  d.MetricName,
-			Dimensions:                  d.Dimensions,
-			Stat:                        d.Stat,
-			StateValue:                  "PENDING_TRAINING",
-			SingleMetricAnomalyDetector: cborSingleMetricAnomalyDet{Namespace: d.Namespace, MetricName: d.MetricName, Dimensions: d.Dimensions, Stat: d.Stat},
-		})
-	}
-	cwWriteCBOR(w, map[string]any{"AnomalyDetectors": out})
-}
-
-func handleCWCBORDeleteAnomalyDetector(w http.ResponseWriter, r *http.Request) {
-	var req cwAnomalyDetectorCBORReq
-	if !cwReadCBOR(w, r, &req) {
-		return
-	}
-	d := req.resolve()
-	key := cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
-	if _, ok := cwAnomalyDetectors.Get(key); !ok {
-		cwWriteCBORError(w, "ResourceNotFoundException", "No anomaly detector found for the given metric.", http.StatusBadRequest)
-		return
-	}
-	cwAnomalyDetectors.Delete(key)
-	cwWriteCBOR(w, map[string]any{})
 }
 
 func handleCWCBORPutInsightRule(w http.ResponseWriter, r *http.Request) {
@@ -427,7 +213,10 @@ func handleCWCBORPutInsightRule(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "MissingParameter", "The parameter RuleDefinition is required.", http.StatusBadRequest)
 		return
 	}
-	cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags)
+	if err := cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags); err != nil {
+		cwWriteCBORError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
+	}
 	cwWriteCBOR(w, map[string]any{})
 }
 
@@ -495,76 +284,12 @@ func handleCWCBORDeleteInsightRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func registerCloudWatchAnomalyInsightQuery(r *AWSQueryRouter) {
-	r.Register("PutAnomalyDetector", handleCWQueryPutAnomalyDetector)
-	r.Register("DescribeAnomalyDetectors", handleCWQueryDescribeAnomalyDetectors)
-	r.Register("DeleteAnomalyDetector", handleCWQueryDeleteAnomalyDetector)
+	registerCloudWatchAnomalyQuery(r)
 	r.Register("PutInsightRule", handleCWQueryPutInsightRule)
 	r.Register("DescribeInsightRules", handleCWQueryDescribeInsightRules)
 	r.Register("EnableInsightRules", handleCWQueryEnableInsightRules)
 	r.Register("DisableInsightRules", handleCWQueryDisableInsightRules)
 	r.Register("DeleteInsightRules", handleCWQueryDeleteInsightRules)
-}
-
-// Accept the top-level parameters and the SingleMetricAnomalyDetector nesting.
-func cwQueryAnomalyIdentity(r *http.Request) CWAnomalyDetector {
-	d := CWAnomalyDetector{
-		Namespace:  r.FormValue("Namespace"),
-		MetricName: r.FormValue("MetricName"),
-		Stat:       r.FormValue("Stat"),
-		Dimensions: cwQueryDimensions(r, "Dimensions"),
-	}
-	if ns := r.FormValue("SingleMetricAnomalyDetector.Namespace"); ns != "" {
-		d.Namespace = ns
-	}
-	if mn := r.FormValue("SingleMetricAnomalyDetector.MetricName"); mn != "" {
-		d.MetricName = mn
-	}
-	if st := r.FormValue("SingleMetricAnomalyDetector.Stat"); st != "" {
-		d.Stat = st
-	}
-	if dims := cwQueryDimensions(r, "SingleMetricAnomalyDetector.Dimensions"); len(dims) > 0 {
-		d.Dimensions = dims
-	}
-	return d
-}
-
-func handleCWQueryPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
-	d := cwQueryAnomalyIdentity(r)
-	if d.Namespace == "" || d.MetricName == "" || d.Stat == "" {
-		cwQueryError(w, "MissingParameter", "Namespace, MetricName and Stat are required.")
-		return
-	}
-	cwAnomalyDetectors.Put(cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions), d)
-	cwQueryResult(w, "PutAnomalyDetector", "")
-}
-
-func handleCWQueryDescribeAnomalyDetectors(w http.ResponseWriter, r *http.Request) {
-	var b []byte
-	b = append(b, []byte("<AnomalyDetectors>")...)
-	for _, d := range cwListAnomalyDetectors(r.FormValue("Namespace"), r.FormValue("MetricName")) {
-		b = append(b, []byte("<member>")...)
-		b = cwQueryAppendf(b, "<Namespace>%s</Namespace><MetricName>%s</MetricName>", xmlEscape(d.Namespace), xmlEscape(d.MetricName))
-		b = append(b, []byte("<Dimensions>")...)
-		for _, dim := range d.Dimensions {
-			b = cwQueryAppendf(b, "<member><Name>%s</Name><Value>%s</Value></member>", xmlEscape(dim.Name), xmlEscape(dim.Value))
-		}
-		b = append(b, []byte("</Dimensions>")...)
-		b = cwQueryAppendf(b, "<Stat>%s</Stat><StateValue>PENDING_TRAINING</StateValue>", xmlEscape(d.Stat))
-		b = append(b, []byte("</member>")...)
-	}
-	b = append(b, []byte("</AnomalyDetectors>")...)
-	cwQueryResult(w, "DescribeAnomalyDetectors", string(b))
-}
-
-func handleCWQueryDeleteAnomalyDetector(w http.ResponseWriter, r *http.Request) {
-	d := cwQueryAnomalyIdentity(r)
-	key := cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
-	if _, ok := cwAnomalyDetectors.Get(key); !ok {
-		cwQueryError(w, "ResourceNotFoundException", "No anomaly detector found for the given metric.")
-		return
-	}
-	cwAnomalyDetectors.Delete(key)
-	cwQueryResult(w, "DeleteAnomalyDetector", "")
 }
 
 func handleCWQueryPutInsightRule(w http.ResponseWriter, r *http.Request) {
@@ -578,7 +303,10 @@ func handleCWQueryPutInsightRule(w http.ResponseWriter, r *http.Request) {
 		cwQueryError(w, "MissingParameter", "The parameter RuleDefinition is required.")
 		return
 	}
-	cwPutInsightRule(name, r.FormValue("RuleState"), def, r.FormValue("ApplyOnTransformedLogs") == "true", nil)
+	if err := cwPutInsightRule(name, r.FormValue("RuleState"), def, r.FormValue("ApplyOnTransformedLogs") == "true", cwQueryTags(r)); err != nil {
+		cwQueryError(w, "InvalidParameterValue", err.Error())
+		return
+	}
 	cwQueryResult(w, "PutInsightRule", "")
 }
 

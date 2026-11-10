@@ -94,7 +94,7 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 		)
 	}
 	if errors.Is(err, errECSTaskStartInterrupted) {
-		ecsLogInterruptedStart(taskID)
+		ecsLogInterruptedStart(taskID, err, phases)
 		return
 	}
 	if errors.Is(err, errECSTaskStartPreempted) {

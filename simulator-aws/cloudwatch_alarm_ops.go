@@ -30,11 +30,19 @@ type CWCompositeAlarm struct {
 	UpdatedTimestamp        int64                  `json:"-"`
 	Tags                    map[string]string      `json:"Tags,omitempty"`
 	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty"`
-	// The children's states at the last evaluation, and at a SetAlarmState that
-	// holds until one of them changes.
-	ChildStates       map[string]string `json:"ChildStates,omitempty"`
-	Held              bool              `json:"Held,omitempty"`
-	ManualChildStates map[string]string `json:"ManualChildStates,omitempty"`
+	// The children's states at the last evaluation; the child transitions since
+	// then; a SetAlarmState that holds until a child changes state; and an update
+	// the next evaluation answers for.
+	ChildStates      map[string]string   `json:"ChildStates,omitempty"`
+	ChildTransitions []cwChildTransition `json:"ChildTransitions,omitempty"`
+	Held             bool                `json:"Held,omitempty"`
+	Updated          bool                `json:"Updated,omitempty"`
+}
+
+type cwChildTransition struct {
+	Name  string    `json:"Name"`
+	State string    `json:"State"`
+	At    time.Time `json:"At"`
 }
 
 // Stored newest-last; describe orders by ScanBy.
@@ -114,14 +122,6 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 	if cwSetLogAlarmState(name, state, reason, reasonData) {
 		return true
 	}
-	ca, ok := cwCompositeAlarms.Get(name)
-	if !ok {
-		return false
-	}
-	var children map[string]string
-	if rule, err := cwParseAlarmRule(ca.AlarmRule); err == nil {
-		children = cwCompositeChildStates(rule)
-	}
 	var composite CWCompositeAlarm
 	if cwCompositeAlarms.Update(name, func(a *CWCompositeAlarm) {
 		composite = *a
@@ -134,8 +134,7 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 		a.StateReason = reason
 		a.StateReasonData = reasonData
 		a.UpdatedTimestamp = now.Unix()
-		a.Held = true
-		a.ManualChildStates = children
+		a.Held, a.ChildTransitions = true, nil
 	}) {
 		cwRecordAlarmHistory(name, "CompositeAlarm", "StateUpdate", fmt.Sprintf("Alarm updated from %s to %s", prev, state), reasonData)
 		if prev != state {
@@ -322,6 +321,10 @@ func handleCWJSONPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, code, msg, http.StatusBadRequest)
 		return
 	}
+	if msg, ok := cwValidateAlarmRule(req.AlarmRule); !ok {
+		AWSError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
+	}
 	cwPutCompositeAlarm(req.AlarmName, req.AlarmRule, req.AlarmDescription, req.ActionsEnabled,
 		req.AlarmActions, req.OKActions, req.InsufficientDataActions, req.Tags, req.ActionConfiguration)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -337,8 +340,6 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 		"AlarmName":               a.AlarmName,
 		"AlarmArn":                a.AlarmArn,
 		"AlarmDescription":        a.AlarmDescription,
-		"Namespace":               a.Namespace,
-		"MetricName":              a.MetricName,
 		"Dimensions":              dims,
 		"Period":                  a.Period,
 		"EvaluationPeriods":       a.EvaluationPeriods,
@@ -350,6 +351,7 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 		"OKActions":               a.OKActions,
 		"InsufficientDataActions": a.InsufficientDataActions,
 		"ActionConfiguration":     a.ActionConfiguration,
+		"Metrics":                 a.Metrics,
 		"StateValue":              state,
 		"StateReason":             reason,
 		"StateUpdatedTimestamp":   float64(now.Unix()),
@@ -358,6 +360,13 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 		entry["ExtendedStatistic"] = a.ExtendedStatistic
 	} else if a.Statistic != "" {
 		entry["Statistic"] = a.Statistic
+	}
+	if a.ThresholdMetricId != "" {
+		entry["ThresholdMetricId"] = a.ThresholdMetricId
+	}
+	if a.Namespace != "" {
+		entry["Namespace"] = a.Namespace
+		entry["MetricName"] = a.MetricName
 	}
 	return entry
 }
@@ -386,6 +395,7 @@ func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmAct
 		ca.StateReasonData = existing.StateReasonData
 		ca.UpdatedTimestamp = existing.UpdatedTimestamp
 		ca.ChildStates = existing.ChildStates
+		ca.Updated = true
 	}
 	if len(tags) > 0 {
 		ca.Tags = map[string]string{}
@@ -620,6 +630,10 @@ func handleCWCBORPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, code, msg, http.StatusBadRequest)
 		return
 	}
+	if msg, ok := cwValidateAlarmRule(req.AlarmRule); !ok {
+		cwWriteCBORError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
+	}
 	cwPutCompositeAlarm(req.AlarmName, req.AlarmRule, req.AlarmDescription, req.ActionsEnabled,
 		req.AlarmActions, req.OKActions, req.InsufficientDataActions, req.Tags, req.ActionConfiguration)
 	cwWriteCBOR(w, map[string]any{})
@@ -711,6 +725,10 @@ func handleCWQueryPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 	}
 	if code, msg, ok := cwValidateActionConfiguration(actionConfiguration); !ok {
 		cwQueryError(w, code, msg)
+		return
+	}
+	if msg, ok := cwValidateAlarmRule(rule); !ok {
+		cwQueryError(w, "ValidationError", msg)
 		return
 	}
 	cwPutCompositeAlarm(name, rule, r.FormValue("AlarmDescription"), enabled,

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
@@ -634,11 +635,16 @@ func handleKinesisPutRecord(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
+	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
+	if !ok {
+		AWSError(w, "ResourceNotFoundException", "stream not found", http.StatusBadRequest)
+		return
+	}
+	if refusal := kinesisCheckRecordSize(stream, req.Data, req.PartitionKey); refusal != "" {
+		AWSError(w, "InvalidArgumentException", refusal, http.StatusBadRequest)
+		return
+	}
 	if req.DryRun {
-		if _, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN); !ok {
-			AWSError(w, "ResourceNotFoundException", "stream not found", http.StatusBadRequest)
-			return
-		}
 		kinesisDryRunSucceeded(w)
 		return
 	}
@@ -668,27 +674,78 @@ func handleKinesisPutRecords(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.DryRun {
-		if _, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN); !ok {
-			AWSError(w, "ResourceNotFoundException", "stream not found", http.StatusBadRequest)
+	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
+	if !ok {
+		AWSError(w, "ResourceNotFoundException", "stream not found", http.StatusBadRequest)
+		return
+	}
+	if len(req.Records) < 1 || len(req.Records) > kinesisPutRecordsMaxRecords {
+		AWSErrorf(w, "InvalidArgumentException", http.StatusBadRequest,
+			"Records must contain between 1 and %d entries, not %d", kinesisPutRecordsMaxRecords, len(req.Records))
+		return
+	}
+	total := 0
+	for i, rec := range req.Records {
+		if refusal := kinesisCheckRecordSize(stream, rec.Data, rec.PartitionKey); refusal != "" {
+			AWSErrorf(w, "InvalidArgumentException", http.StatusBadRequest, "Records[%d]: %s", i, refusal)
 			return
 		}
+		total += len(rec.Data) + len(rec.PartitionKey)
+	}
+	if total > kinesisPutRecordsMaxBytes {
+		AWSErrorf(w, "InvalidArgumentException", http.StatusBadRequest,
+			"The PutRecords request is %d bytes, including partition keys, which exceeds the limit of %d bytes", total, kinesisPutRecordsMaxBytes)
+		return
+	}
+	if req.DryRun {
 		kinesisDryRunSucceeded(w)
 		return
 	}
 	out := make([]map[string]any, 0, len(req.Records))
+	failed := 0
 	for _, rec := range req.Records {
-		shardID, seq, err := kinesisAppendRecord(req.StreamName, req.StreamARN, rec.Data, rec.PartitionKey, rec.ExplicitHashKey)
+		shardID, seq, err := kinesisAppendRecord(stream.StreamName, "", rec.Data, rec.PartitionKey, rec.ExplicitHashKey)
 		if err != nil {
-			out = append(out, map[string]any{"ErrorCode": "ResourceNotFoundException", "ErrorMessage": err.Error()})
+			failed++
+			out = append(out, map[string]any{"ErrorCode": "InternalFailure", "ErrorMessage": err.Error()})
 			continue
 		}
 		out = append(out, map[string]any{"ShardId": shardID, "SequenceNumber": seq})
 	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
-		"FailedRecordCount": 0,
+		"FailedRecordCount": failed,
 		"Records":           out,
 	})
+}
+
+// The PutRecord and PutRecords API references cap a record, its data and
+// partition key together, at the stream's maximum record size, 1 MiB unless
+// UpdateMaxRecordSize raised it, a partition key at 256 characters, and a
+// PutRecords request at 500 records and 10 MiB.
+const (
+	kinesisDefaultMaxRecordKiB  = 1024
+	kinesisPartitionKeyMaxChars = 256
+	kinesisPutRecordsMaxRecords = 500
+	kinesisPutRecordsMaxBytes   = 10 * 1024 * 1024
+)
+
+func (s KinesisStream) maxRecordBytes() int {
+	kib := s.MaxRecordSizeInKiB
+	if kib == 0 {
+		kib = kinesisDefaultMaxRecordKiB
+	}
+	return int(kib) * 1024
+}
+
+func kinesisCheckRecordSize(stream KinesisStream, data []byte, partitionKey string) string {
+	if n := utf8.RuneCountInString(partitionKey); n < 1 || n > kinesisPartitionKeyMaxChars {
+		return fmt.Sprintf("PartitionKey must be between 1 and %d characters long", kinesisPartitionKeyMaxChars)
+	}
+	if size := len(data) + len(partitionKey); size > stream.maxRecordBytes() {
+		return fmt.Sprintf("The record is %d bytes, including its partition key, which exceeds the maximum record size of %d KiB for stream %s",
+			size, stream.maxRecordBytes()/1024, stream.StreamName)
+	}
+	return ""
 }
 
 func kinesisAppendRecord(streamName, streamARN string, data []byte, partitionKey, explicitHashKey string) (string, string, error) {

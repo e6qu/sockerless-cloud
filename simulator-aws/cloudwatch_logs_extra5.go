@@ -66,6 +66,10 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 				"The specified log group does not exist: %s", id)
 			return
 		}
+		if group, _ := cwLogGroups.Get(name); !group.standard() {
+			AWSError(w, "InvalidOperationException", "Live Tail is supported only for log groups in the Standard log class.", http.StatusBadRequest)
+			return
+		}
 		groupARNs[name] = cwLogGroupArn(name)
 		echoedIdentifiers = append(echoedIdentifiers, groupARNs[name])
 	}
@@ -263,7 +267,10 @@ func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 
 	// The simulator's logObjectPointer is "<logGroupName>:<logStreamName>",
 	// optionally followed by ":<index>".
-	data, ok := cwResolveLogObject(req.LogObjectPointer)
+	if group, _, _ := strings.Cut(req.LogObjectPointer, ":"); req.Unmask && cwRefuseUnmask(w, r, group) {
+		return
+	}
+	data, ok := cwResolveLogObject(req.LogObjectPointer, req.Unmask)
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log object does not exist: %s", req.LogObjectPointer)
@@ -290,7 +297,7 @@ func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 }
 
 // Without an index, return the stream's newest event.
-func cwResolveLogObject(pointer string) ([]byte, bool) {
+func cwResolveLogObject(pointer string, unmask bool) ([]byte, bool) {
 	parts := strings.Split(pointer, ":")
 	if len(parts) < 2 {
 		return nil, false
@@ -316,7 +323,7 @@ func cwResolveLogObject(pointer string) ([]byte, bool) {
 	if index >= len(events) {
 		return nil, false
 	}
-	return []byte(events[index].Message), true
+	return []byte(events[index].message(unmask)), true
 }
 
 func parsePositiveInt(s string) (int, error) {

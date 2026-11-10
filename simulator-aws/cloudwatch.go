@@ -2,9 +2,12 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,14 +19,59 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
+// Arn is the ARN without the trailing ":*", the one tagging and
+// logGroupIdentifier take.
 type CWLogGroup struct {
-	LogGroupName    string            `json:"logGroupName"`
-	Arn             string            `json:"arn"`
-	CreationTime    int64             `json:"creationTime"`
-	RetentionInDays int               `json:"retentionInDays,omitempty"`
-	StoredBytes     int64             `json:"storedBytes"`
-	KmsKeyId        string            `json:"kmsKeyId,omitempty"`
-	Tags            map[string]string `json:"-"`
+	LogGroupName              string            `json:"logGroupName"`
+	Arn                       string            `json:"arn"`
+	CreationTime              int64             `json:"creationTime"`
+	RetentionInDays           int               `json:"retentionInDays,omitempty"`
+	StoredBytes               int64             `json:"storedBytes"`
+	KmsKeyId                  string            `json:"kmsKeyId,omitempty"`
+	LogGroupClass             string            `json:"logGroupClass,omitempty"`
+	DeletionProtectionEnabled bool              `json:"deletionProtectionEnabled,omitempty"`
+	DataProtectionStatus      string            `json:"dataProtectionStatus,omitempty"`
+	Tags                      map[string]string `json:"-"`
+}
+
+const (
+	cwClassStandard         = "STANDARD"
+	cwClassInfrequentAccess = "INFREQUENT_ACCESS"
+	cwClassEssentials       = "ESSENTIALS"
+	cwClassDelivery         = "DELIVERY"
+)
+
+// The log classes guide renamed Infrequent Access to Essentials: both names
+// are accepted as input, and read paths answer ESSENTIALS from December 2026.
+var cwEssentialsReadPathFrom = time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC)
+
+// The log classes guide keeps a Delivery group's events for two days, a
+// retention no policy changes.
+const cwDeliveryRetentionDays = 2
+
+// A group a service created on a workload's behalf takes the default class.
+func (g CWLogGroup) class() string {
+	if g.LogGroupClass == "" {
+		return cwClassStandard
+	}
+	return g.LogGroupClass
+}
+
+func cwCanonicalClass(class string) string {
+	if class == cwClassEssentials {
+		return cwClassInfrequentAccess
+	}
+	return class
+}
+
+func (g CWLogGroup) standard() bool { return g.class() == cwClassStandard }
+
+func (g CWLogGroup) wireClass(now time.Time) string {
+	class := cwCanonicalClass(g.class())
+	if class == cwClassInfrequentAccess && !now.Before(cwEssentialsReadPathFrom) {
+		return cwClassEssentials
+	}
+	return class
 }
 
 type CWLogStream struct {
@@ -42,18 +90,54 @@ type CWLogStream struct {
 }
 
 // GetLogEvents and FilterLogEvents read Message, the event as ingested;
-// Insights and metric filters read the transformed version.
+// Insights and metric filters read the transformed version. A data
+// protection policy masks both at ingestion and keeps the originals in
+// Unmasked and UnmaskedTransformed for a reader that may unmask.
 type CWLogEvent struct {
+	ID                  string `json:"id,omitempty"`
 	Timestamp           int64  `json:"timestamp"`
 	Message             string `json:"message"`
 	IngestionTime       int64  `json:"ingestionTime"`
 	Transformed         string `json:"transformed,omitempty"`
 	TransformationError string `json:"transformationError,omitempty"`
+	Unmasked            string `json:"unmasked,omitempty"`
+	UnmaskedTransformed string `json:"unmaskedTransformed,omitempty"`
+	// IndexedFields holds the value of each field index the event matched
+	// when it was ingested.
+	IndexedFields  map[string]string `json:"indexedFields,omitempty"`
+	DataSourceName string            `json:"dataSourceName,omitempty"`
+	DataSourceType string            `json:"dataSourceType,omitempty"`
+	DataFormat     string            `json:"dataFormat,omitempty"`
 }
 
 func (e CWLogEvent) processedMessage() string {
 	if e.Transformed != "" {
 		return e.Transformed
+	}
+	return e.Message
+}
+
+func (e CWLogEvent) unmaskedMessage() string {
+	if e.Unmasked != "" {
+		return e.Unmasked
+	}
+	return e.Message
+}
+
+func (e CWLogEvent) unmaskedProcessedMessage() string {
+	switch {
+	case e.UnmaskedTransformed != "":
+		return e.UnmaskedTransformed
+	case e.Transformed != "":
+		return e.Transformed
+	}
+	return e.unmaskedMessage()
+}
+
+// message is the event as a reader that asked to unmask, or did not, reads it.
+func (e CWLogEvent) message(unmask bool) string {
+	if unmask {
+		return e.unmaskedMessage()
 	}
 	return e.Message
 }
@@ -107,10 +191,6 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time
 	cwAppendLogEvents(key, events, func(stream *CWLogStream) {
 		stream.UploadSequenceToken = nextSequenceToken
 	})
-	for _, datum := range extractEMFMetrics(message, eventMs) {
-		cwStoreDatum(datum)
-	}
-	cwEvaluateMetricFilters(logGroup, events)
 }
 
 // Create the stream before the workload starts, as the writing service does,
@@ -139,23 +219,42 @@ func cwEnsureLogStream(group, stream string) {
 
 // Keep the stream's first and last event timestamps and last ingestion time in
 // step, whichever path delivered; touch updates the stream in the same write.
-// Transform the events in place, so the caller's metric filters read the
-// transformed versions.
+// Every path ingests here, so each event gets its ID, its transformed version,
+// and the features its group's log class offers: the log classes guide gives
+// Live Tail, subscription filters, transformers, metric filters and embedded
+// metric format extraction to the Standard class alone.
 func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)) {
 	if len(events) == 0 {
 		return
 	}
-	if group, stream, ok := strings.Cut(key, ":"); ok {
-		cwTransformIngested(group, stream, events)
+	groupName, stream, _ := strings.Cut(key, ":")
+	group, _ := cwLogGroups.Get(groupName)
+	cwAssignEventIDs(events)
+	source := cwClassifyIngested(group, events)
+	if group.standard() {
+		cwTransformIngested(groupName, stream, events)
+	}
+	var findings []cwPendingFindings
+	withFindings := 0
+	if group.class() != cwClassDelivery {
+		findings, withFindings = cwProtectIngested(groupName, events)
+	}
+	if group.standard() {
+		cwIndexIngested(groupName, stream, events)
 	}
 	items := make([]logstore.Item[CWLogEvent], 0, len(events))
 	for _, e := range events {
 		items = append(items, logstore.Item[CWLogEvent]{Time: e.Timestamp, Value: e})
 	}
 	cwLogEvents.Append(key, time.Now(), items...)
-	if group, stream, ok := strings.Cut(key, ":"); ok {
-		cwLiveTailPublish(group, stream, events)
+	cwDiscoverSchema(groupName, source, events)
+	if group.standard() {
+		cwLiveTailPublish(groupName, stream, events)
+		cwDeliverSubscriptions(groupName, stream, events)
+		cwExtractEMF(groupName, events)
+		cwEvaluateMetricFilters(groupName, events)
 	}
+	cwPublishFindings(groupName, findings, withFindings)
 	first, last, ingested := events[0].Timestamp, events[0].Timestamp, events[0].IngestionTime
 	for _, e := range events[1:] {
 		first, last, ingested = min(first, e.Timestamp), max(last, e.Timestamp), max(ingested, e.IngestionTime)
@@ -234,9 +333,10 @@ func (c *byteCounter) Write(p []byte) (int, error) {
 // Retention removes events, not streams.
 func cwSweepExpiredLogEvents(now time.Time) int {
 	cutoffs := map[string]int64{}
+	retention := cwRetentionVersionsAt(now)
 	for _, group := range cwLogGroups.List() {
-		if group.RetentionInDays > 0 {
-			cutoffs[group.LogGroupName] = now.Add(-time.Duration(group.RetentionInDays) * 24 * time.Hour).UnixMilli()
+		if days, _ := cwEffectiveRetention(group, retention); days > 0 {
+			cutoffs[group.LogGroupName] = now.Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
 		}
 	}
 	if len(cutoffs) == 0 {
@@ -268,16 +368,28 @@ func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	if err := cwMigrateLogEvents(srv.DB()); err != nil {
 		log.Fatalf("cloudwatch logs: %v", err)
 	}
+	if err := cwMigrateLogEventIDs(srv.DB()); err != nil {
+		log.Fatalf("cloudwatch logs: %v", err)
+	}
 	cwSequences = sim.MakeStore[int64](srv.DB(), "cw_sequences")
 	cwQueries = sim.MakeStore[CWQuery](srv.DB(), "cw_insights_queries")
 	kvstore.StartSweeper(srv, "CloudWatch Logs retention", cwRetentionSweepInterval, func(now time.Time) { cwSweepLogs(now) })
 	registerCloudWatchInsights(r)
 	registerCloudWatchLogsOps(r, srv)
+	registerCloudWatchLogsSubscriptions(r, srv)
 	registerCloudWatchLogsExtra2(r, srv)
+	registerCloudWatchLogsFieldIndexes(srv)
+	registerCloudWatchLogsDataSources(srv)
+	if err := cwMigrateIndexPolicyKeys(srv.DB()); err != nil {
+		log.Fatalf("cloudwatch logs: %v", err)
+	}
 	registerCloudWatchLogsExtra3(r, srv)
 	registerCloudWatchLogsExtra4(r, srv)
 	registerCloudWatchLogsExtra5(r, srv)
 	registerCloudWatchLogsSyslog(r, srv)
+	if err := cwMigrateLogGroupProtection(srv.DB()); err != nil {
+		log.Fatalf("cloudwatch logs: %v", err)
+	}
 
 	r.Register("Logs_20140328.CreateLogGroup", handleCWCreateLogGroup)
 	r.Register("Logs_20140328.DescribeLogGroups", handleCWDescribeLogGroups)
@@ -292,6 +404,29 @@ func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	r.Register("Logs_20140328.TagResource", handleCWTagResource)
 	r.Register("Logs_20140328.AssociateKmsKey", handleCWAssociateKmsKey)
 	r.Register("Logs_20140328.DisassociateKmsKey", handleCWDisassociateKmsKey)
+}
+
+// The subscription guide's event IDs, and the ones a captured delivery
+// carries, are a 185-bit number: the event's timestamp above its ingestion
+// time above 80 bits that place it within its batch, the last 16 counting up
+// from zero across the batch.
+func cwAssignEventIDs(events []CWLogEvent) {
+	var salt [8]byte
+	if _, err := rand.Read(salt[:]); err != nil {
+		panic(err)
+	}
+	batch := new(big.Int).Lsh(new(big.Int).SetUint64(binary.BigEndian.Uint64(salt[:])), 16)
+	for i := range events {
+		if events[i].ID != "" {
+			continue
+		}
+		id := new(big.Int).Lsh(big.NewInt(events[i].Timestamp), 64)
+		id.Or(id, big.NewInt(events[i].IngestionTime))
+		id.Lsh(id, 80)
+		id.Or(id, batch)
+		id.Or(id, big.NewInt(int64(i&0xffff)))
+		events[i].ID = id.String()
+	}
 }
 
 func cwNextSequenceToken() string {
@@ -340,10 +475,11 @@ func handleCWDisassociateKmsKey(w http.ResponseWriter, r *http.Request) {
 
 func handleCWCreateLogGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		LogGroupName    string            `json:"logGroupName"`
-		RetentionInDays int               `json:"retentionInDays"`
-		KmsKeyId        string            `json:"kmsKeyId"`
-		Tags            map[string]string `json:"tags"`
+		LogGroupName              string            `json:"logGroupName"`
+		KmsKeyId                  string            `json:"kmsKeyId"`
+		Tags                      map[string]string `json:"tags"`
+		LogGroupClass             string            `json:"logGroupClass"`
+		DeletionProtectionEnabled bool              `json:"deletionProtectionEnabled"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -360,13 +496,18 @@ func handleCWCreateLogGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	class := req.LogGroupClass
+	if class == "" {
+		class = "STANDARD"
+	}
 	lg := CWLogGroup{
-		LogGroupName:    req.LogGroupName,
-		Arn:             cwLogGroupArn(req.LogGroupName),
-		CreationTime:    time.Now().UnixMilli(),
-		RetentionInDays: req.RetentionInDays,
-		KmsKeyId:        req.KmsKeyId,
-		Tags:            req.Tags,
+		LogGroupName:              req.LogGroupName,
+		Arn:                       cwLogGroupArn(req.LogGroupName),
+		CreationTime:              time.Now().UnixMilli(),
+		KmsKeyId:                  req.KmsKeyId,
+		LogGroupClass:             class,
+		DeletionProtectionEnabled: req.DeletionProtectionEnabled,
+		Tags:                      req.Tags,
 	}
 	cwLogGroups.Put(req.LogGroupName, lg)
 
@@ -375,23 +516,26 @@ func handleCWCreateLogGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleCWDescribeLogGroups(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		LogGroupNamePrefix string `json:"logGroupNamePrefix"`
-		Limit              int    `json:"limit"`
-		NextToken          string `json:"nextToken"`
+		LogGroupNamePrefix  string `json:"logGroupNamePrefix"`
+		LogGroupNamePattern string `json:"logGroupNamePattern"`
+		LogGroupClass       string `json:"logGroupClass"`
+		Limit               int    `json:"limit"`
+		NextToken           string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	var groups []CWLogGroup
-	if req.LogGroupNamePrefix != "" {
-		groups = cwLogGroups.Filter(func(lg CWLogGroup) bool {
-			return strings.HasPrefix(lg.LogGroupName, req.LogGroupNamePrefix)
-		})
-	} else {
-		groups = cwLogGroups.List()
+	if req.LogGroupNamePrefix != "" && req.LogGroupNamePattern != "" {
+		AWSError(w, "InvalidParameterException", "logGroupNamePrefix and logGroupNamePattern are mutually exclusive. Only one of these parameters can be passed.", http.StatusBadRequest)
+		return
 	}
+
+	groups := cwLogGroups.Filter(func(lg CWLogGroup) bool {
+		return strings.HasPrefix(lg.LogGroupName, req.LogGroupNamePrefix) &&
+			strings.Contains(lg.LogGroupName, req.LogGroupNamePattern) &&
+			(req.LogGroupClass == "" || cwCanonicalClass(lg.class()) == cwCanonicalClass(req.LogGroupClass))
+	})
 	if groups == nil {
 		groups = []CWLogGroup{}
 	}
@@ -400,9 +544,25 @@ func handleCWDescribeLogGroups(w http.ResponseWriter, r *http.Request) {
 	if !pageOK {
 		return
 	}
+	now := time.Now()
+	retention := cwRetentionVersionsAt(now)
 	wire := make([]cwLogGroupWire, 0, len(page))
 	for _, g := range page {
-		wire = append(wire, cwLogGroupWire{CWLogGroup: g, LogGroupArn: g.Arn, LogGroupClass: "STANDARD"})
+		days, policy := cwEffectiveRetention(g, retention)
+		wire = append(wire, cwLogGroupWire{
+			LogGroupName:              g.LogGroupName,
+			CreationTime:              g.CreationTime,
+			RetentionInDays:           int(days),
+			RetentionPolicyName:       policy,
+			MetricFilterCount:         len(cwGroupMetricFilters(g.LogGroupName)),
+			Arn:                       g.Arn + ":*",
+			StoredBytes:               g.StoredBytes,
+			KmsKeyId:                  g.KmsKeyId,
+			DataProtectionStatus:      g.DataProtectionStatus,
+			LogGroupClass:             g.wireClass(now),
+			LogGroupArn:               g.Arn,
+			DeletionProtectionEnabled: g.DeletionProtectionEnabled,
+		})
 	}
 	out := map[string]any{"logGroups": wire}
 	if next != "" {
@@ -411,11 +571,20 @@ func handleCWDescribeLogGroups(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// The simulator creates only Standard-class log groups.
+// The model's arn carries a trailing ":*"; logGroupArn does not.
 type cwLogGroupWire struct {
-	CWLogGroup
-	LogGroupArn   string `json:"logGroupArn"`
-	LogGroupClass string `json:"logGroupClass"`
+	LogGroupName              string `json:"logGroupName"`
+	CreationTime              int64  `json:"creationTime"`
+	RetentionInDays           int    `json:"retentionInDays,omitempty"`
+	RetentionPolicyName       string `json:"retentionPolicyName,omitempty"`
+	MetricFilterCount         int    `json:"metricFilterCount"`
+	Arn                       string `json:"arn"`
+	StoredBytes               int64  `json:"storedBytes"`
+	KmsKeyId                  string `json:"kmsKeyId,omitempty"`
+	DataProtectionStatus      string `json:"dataProtectionStatus,omitempty"`
+	LogGroupClass             string `json:"logGroupClass"`
+	LogGroupArn               string `json:"logGroupArn"`
+	DeletionProtectionEnabled bool   `json:"deletionProtectionEnabled"`
 }
 
 func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
@@ -431,11 +600,18 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !cwLogGroups.Delete(req.LogGroupName) {
+	group, ok := cwLogGroups.Get(req.LogGroupName)
+	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
+	if group.DeletionProtectionEnabled {
+		AWSError(w, "ValidationException",
+			"Cannot delete log group with deletion protection enabled. Disable deletion protection first.", http.StatusBadRequest)
+		return
+	}
+	cwLogGroups.Delete(req.LogGroupName)
 
 	streams := cwLogStreams.Filter(func(s CWLogStream) bool {
 		return s.LogGroupName == req.LogGroupName
@@ -446,6 +622,16 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 		cwLogEvents.Drop(key)
 	}
 	cwTransformers.Delete(req.LogGroupName)
+	cwDataProtection.Delete(req.LogGroupName)
+	cwIndexPolicies.Delete(req.LogGroupName)
+	cwDeleteFieldIndexes(req.LogGroupName)
+	cwForgetDataSources(req.LogGroupName)
+	for _, f := range cwGroupMetricFilters(req.LogGroupName) {
+		cwMetricFilters.Delete(cwFilterKey(req.LogGroupName, f.FilterName))
+	}
+	for _, f := range cwGroupSubscriptionFilters(req.LogGroupName) {
+		cwSubscriptionFilters.Delete(cwFilterKey(req.LogGroupName, f.FilterName))
+	}
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -569,6 +755,15 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inputs := make([]CWLogEvent, 0, len(req.LogEvents))
+	for _, e := range req.LogEvents {
+		inputs = append(inputs, CWLogEvent{Timestamp: e.Timestamp, Message: e.Message})
+	}
+	if refusal := cwCheckPutLogEventsBatch(inputs); refusal != "" {
+		AWSError(w, "InvalidParameterException", refusal, http.StatusBadRequest)
+		return
+	}
+
 	key := cwEventsKey(req.LogGroupName, req.LogStreamName)
 	if _, ok := cwLogStreams.Get(key); !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
@@ -576,33 +771,32 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UnixMilli()
-	var newEvents []CWLogEvent
-	for _, e := range req.LogEvents {
-		newEvents = append(newEvents, CWLogEvent{
-			Timestamp:     e.Timestamp,
-			Message:       e.Message,
-			IngestionTime: now,
-		})
+	group, _ := cwLogGroups.Get(req.LogGroupName)
+	now := time.Now()
+	retention, _ := cwEffectiveRetention(group, cwRetentionVersionsAt(now))
+	window := cwClassifyPutLogEvents(inputs, now, retention)
+	if refusal := window.spanRefusal(inputs); refusal != "" {
+		AWSError(w, "InvalidParameterException", refusal, http.StatusBadRequest)
+		return
 	}
-
-	nextSequenceToken := cwNextSequenceToken()
-	cwAppendLogEvents(key, newEvents, func(s *CWLogStream) {
-		s.UploadSequenceToken = nextSequenceToken
-	})
-
-	// CloudWatch extracts metrics from any EMF event.
-	for _, e := range req.LogEvents {
-		for _, datum := range extractEMFMetrics(e.Message, e.Timestamp) {
-			cwStoreDatum(datum)
+	var accepted []CWLogEvent
+	for i, e := range inputs {
+		if window.accepts(i) {
+			e.IngestionTime = now.UnixMilli()
+			accepted = append(accepted, e)
 		}
 	}
 
-	cwEvaluateMetricFilters(req.LogGroupName, newEvents)
-
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"nextSequenceToken": nextSequenceToken,
+	nextSequenceToken := cwNextSequenceToken()
+	cwAppendLogEvents(key, accepted, func(s *CWLogStream) {
+		s.UploadSequenceToken = nextSequenceToken
 	})
+
+	out := map[string]any{"nextSequenceToken": nextSequenceToken}
+	if rejected := window.rejectedInfo(); rejected != nil {
+		out["rejectedLogEventsInfo"] = rejected
+	}
+	sim.WriteJSON(w, http.StatusOK, out)
 }
 
 // GetLogEvents' default bounds: 10,000 events and 1 MB, each event costing
@@ -629,6 +823,18 @@ func cwGetLogEventsDefaultPage(events []CWLogEvent) int {
 	return count
 }
 
+// The log classes guide does not support GetLogEvents and FilterLogEvents on
+// an Essentials group, whose events CloudWatch Logs Insights reads; neither
+// operation documents InvalidOperationException, so the refusal is their
+// InvalidParameterException.
+func cwRefuseEventReads(w http.ResponseWriter, group CWLogGroup) bool {
+	if cwCanonicalClass(group.class()) != cwClassInfrequentAccess {
+		return false
+	}
+	AWSError(w, "InvalidParameterException", "GetLogEvents and FilterLogEvents are not supported for log groups in the Essentials (formerly Infrequent Access) log class. Use CloudWatch Logs Insights to view log events stored in log groups in the Essentials (formerly Infrequent Access) log class.", http.StatusBadRequest)
+	return true
+}
+
 func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupName  string `json:"logGroupName"`
@@ -638,6 +844,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		Limit         int    `json:"limit"`
 		StartFromHead *bool  `json:"startFromHead"`
 		NextToken     string `json:"nextToken"`
+		Unmask        bool   `json:"unmask"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -648,9 +855,16 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Check the group before the stream, as GetLogEvents does.
-	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
+	group, ok := cwLogGroups.Get(req.LogGroupName)
+	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
+		return
+	}
+	if cwRefuseEventReads(w, group) {
+		return
+	}
+	if req.Unmask && cwRefuseUnmask(w, r, req.LogGroupName) {
 		return
 	}
 
@@ -721,7 +935,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	output := make([]outputLogEvent, 0, len(filtered))
 	for _, e := range filtered {
-		output = append(output, outputLogEvent{Timestamp: e.Timestamp, Message: e.Message, IngestionTime: e.IngestionTime})
+		output = append(output, outputLogEvent{Timestamp: e.Timestamp, Message: e.message(req.Unmask), IngestionTime: e.IngestionTime})
 	}
 
 	newForwardOffset := offset + len(filtered)
@@ -742,6 +956,7 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 		StartTime           int64    `json:"startTime"`
 		EndTime             int64    `json:"endTime"`
 		Limit               int      `json:"limit"`
+		Unmask              bool     `json:"unmask"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -758,9 +973,16 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A missing group is a ResourceNotFoundException, not an empty result.
-	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
+	group, ok := cwLogGroups.Get(req.LogGroupName)
+	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
+		return
+	}
+	if cwRefuseEventReads(w, group) {
+		return
+	}
+	if req.Unmask && cwRefuseUnmask(w, r, req.LogGroupName) {
 		return
 	}
 
@@ -804,15 +1026,16 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 			if req.EndTime > 0 && e.Timestamp > req.EndTime {
 				continue
 			}
-			if !pattern.match(e.Message) {
+			message := e.message(req.Unmask)
+			if !pattern.match(message) {
 				continue
 			}
 			results = append(results, map[string]any{
 				"logStreamName": stream.LogStreamName,
 				"timestamp":     e.Timestamp,
-				"message":       e.Message,
+				"message":       message,
 				"ingestionTime": e.IngestionTime,
-				"eventId":       sim.NewUUID(),
+				"eventId":       e.ID,
 			})
 		}
 	}
@@ -830,6 +1053,14 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func cwRefuseDeliveryRetention(w http.ResponseWriter, group CWLogGroup) bool {
+	if group.class() != cwClassDelivery {
+		return false
+	}
+	AWSError(w, "InvalidParameterException", "Log events in log groups in the Delivery class are kept in CloudWatch Logs for two days. This retention period is fixed and cannot be changed.", http.StatusBadRequest)
+	return true
+}
+
 func handleCWPutRetentionPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupName    string `json:"logGroupName"`
@@ -844,9 +1075,13 @@ func handleCWPutRetentionPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
+	group, ok := cwLogGroups.Get(req.LogGroupName)
+	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
+		return
+	}
+	if cwRefuseDeliveryRetention(w, group) {
 		return
 	}
 

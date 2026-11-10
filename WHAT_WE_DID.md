@@ -1839,14 +1839,133 @@ fails once the row closes or the operation is served.
   `cloudwatch_logs_transformer_test.go` runs as input-to-output vectors: grok
   matches its whole source with literal text between the documented patterns
   only, `moveKeys` moves a key into a target that is an object,
-  `dateTimeConverter` reads `java.time` patterns with English and German names,
   and the transformed event keeps its keys in the order the processors wrote
-  them. `parseToOCSF` answers `InvalidOperationException`, because the guide
-  does not publish its OCSF mappings. The guide's `dateTimeConverter` example
+  them. The guide's `dateTimeConverter` example
   output (`1998-12-05T17:00:00 MEZ` for 11:00 Berlin time converted to New
   York) contradicts its own zones, so the test asserts the converted
   instant instead, and the documented default target format, missing its
   closing quote, became `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`.
+- **`dateTimeConverter` is Java SE 17's `DateTimeFormatter`.** The guide links
+  Java's pattern page and names Java's zone IDs and available locales, so the
+  converter ports `DateTimeFormatterBuilder`'s printer-parsers (adjacent value
+  parsing, optional sections, padding, every pattern letter), `Parsed`'s SMART
+  resolver and `WeekFields`, from the JDK 17 sources vendored beside the
+  specifications. Its locale data is what Java SE 17 ships: CLDR 39's
+  resolved names for every CLDR locale, the root locale's month names the
+  JDK's converter replaces with the US short names, week data by region with
+  the US standing in for a locale without one, day period rules, and time zone
+  names from CLDR's zone and metazone entries with the JDK's COMPAT names
+  filling the slots CLDR leaves empty, which is how `America/Sao_Paulo` prints
+  `BRT`. `scripts/fetch-cloudwatch-logs-transformer-sources.sh` vendors the
+  sources and `scripts/gen-cloudwatch-logs-cldr.go` interns their strings into
+  one pool; the zone and COMPAT names ship as text the simulator indexes on
+  first use, because map literals of that size compile slowly. Zone rules come
+  from Go's time zone database, as a serviced Java 17 runtime carries current
+  tzdata, while CLDR stays at 39, which Java 17 updates never move.
+- **`parseToOCSF` follows Amazon Security Lake's mapping dossiers.** The
+  guide's event sources are the five Security Lake publishes OCSF mappings for
+  in ocsf/examples (`mappings/markdown/AWS/v1.1.0` and `v1.5.0`), and the
+  guide's `ocsfVersion` values name those directories. A generator reads each
+  dossier's constants, Mapping and Conditional Mapping tables and the OCSF
+  schema of its version (dictionary, classes, objects, profiles and includes);
+  the mapper types every value by the schema (ports and counts as integers,
+  timestamps as epoch milliseconds with a `_dt` datetime beside each as the
+  datetime profile adds, JSON attributes as strings), derives each activity,
+  action and disposition from the schema's enumerations, flattens every raw
+  field no row reads into `unmapped` the way the samples do (dotted keys, `[]`
+  for arrays, comma-joined values, nulls dropped) and lists the observables
+  each dossier names. `TestParseToOCSFMatchesDossierSamples` converts every
+  raw sample and compares each value its OCSF sample shows; where a sample
+  contradicts its dossier, the schema or another sample, the test names the
+  value and why. Only mapping version 1.5.0, the guide's current one, exists.
+- **Amazon CloudWatch Logs subscriptions and log groups.** Every ingestion
+  path forwards, after the transformer, the events each of the log group's
+  subscription filters matches (the transformed version when the filter sets
+  `applyOnTransformedLogs`) as one gzipped `DATA_MESSAGE` per filter and
+  batch, in the subscription guide's envelope, through `awsCall` as
+  `logs.amazonaws.com` with the log group's ARN and `:*` as the source: to
+  Amazon Kinesis Data Streams and Amazon Data Firehose with `PutRecord` as the
+  filter's role, to AWS Lambda as an `Event` invocation of
+  `{"awslogs":{"data":…}}` the function's resource policy must admit, and to a
+  destination's stream as the destination's role. A `sim/delivery` dispatcher
+  retries a retryable refusal for the guide's 24 hours and disables a filter
+  for ten minutes after a non-retryable one. `PutSubscriptionFilter` and
+  `PutDestination` prove the destination first, as terraform-provider-aws's
+  retries on "Could not deliver test message" and "Could not execute the
+  lambda function" show the service does: a `CONTROL_MESSAGE` to a stream, a
+  `DryRun` invocation of a function. A log group takes five filters, the
+  quotas page's figure over the model's stale two. `DescribeLogGroups` answers
+  `arn` with the model's trailing `:*` and `logGroupArn` without it, so tests
+  that pass an ARN to tagging, Live Tail or anomaly detectors read
+  `logGroupArn`; it reports `metricFilterCount`, `deletionProtectionEnabled`,
+  `dataProtectionStatus` (`ACTIVATED`, then `DELETED`) and the class
+  `CreateLogGroup` stored, and filters by class and name pattern. Deletion
+  protection moved onto the log group (a migration carries the old table) and
+  refuses `DeleteLogGroup` with the guide's `ValidationException`; deleting a
+  group deletes its metric and subscription filters and data protection
+  policy. Subscription filters and transformers refuse a non-Standard group.
+- **Amazon CloudWatch Logs account policies, log classes and event IDs.**
+  Every ingestion path, the Lambda runtime's own lines included, runs through
+  `cwAppendLogEvents`, which gives each event its one ID and, for a Standard
+  group only, the transformer, Live Tail, subscriptions, embedded metric
+  format extraction and metric filters. An event ID decodes, in the
+  subscription guide's examples and a published capture alike, to the event's
+  timestamp shifted 144 bits above its ingestion time shifted 80 above a
+  per-batch salt and the event's index, so `FilterLogEvents` and the
+  forwarded envelope answer the same 56-digit ID; a migration gives stored
+  events theirs. `PutAccountPolicy` parses `selectionCriteria` in the API
+  reference's operator syntax per policy type, refuses `aws/` names, and
+  holds each type to its limits: one subscription filter policy, twenty
+  transformer policies with no overlapping prefixes (the API reference's
+  example document is the processor array), twenty retention policies. The
+  account-level subscription filter policy forwards with `policyLevel`
+  `ACCOUNT_LEVEL_POLICY` (a log group-level envelope carries none, as the log
+  group-level guide's samples and Powertools' optional field show) and never
+  to its destination function's own log group. An account-level transformer
+  applies where a group has none, publishing under `PolicyLevel`
+  `AccountPolicy`. A retention policy takes effect 24 hours after each put,
+  the longest applicable one wins and `NEW_ONLY` spares older groups;
+  `DescribeLogGroups` reports it in `retentionInDays` and
+  `retentionPolicyName`, the retention sweep honours it, and `dryRun` on put
+  and delete previews the change. Forwarding publishes `ForwardedLogEvents`,
+  `ForwardedBytes`, `DeliveryErrors` and `DeliveryThrottling` with the metrics
+  page's dimensions; `DestinationType` is `Kinesis`, `Firehose` or `Lambda`,
+  the short names the control messages use, because the page describes the
+  values without spelling them. A batch whose gzipped envelope exceeds the
+  destination's record limit (the Kinesis stream's maximum record size,
+  Firehose's 1,000 KiB, Lambda's 1 MB asynchronous payload) splits in halves
+  until each part fits. Retries follow the AWS SDKs and Tools Reference
+  Guide's standard mode: full jitter over a 1-second base after a throttling
+  code from its list, 50 ms otherwise, capped at 20 seconds. The control
+  message follows a published capture: owner `CloudwatchLogs`, empty group,
+  stream, filters and ID, and "Checking health of destination Kinesis
+  stream." or "… Firehose.". `fieldSelectionCriteria` filters by the
+  `@aws.account`, `@aws.region` and `@source.log` system fields and
+  `emitSystemFields` adds them to each forwarded event; metric filters take
+  the same criteria, `emitSystemFieldDimensions` and `applyOnTransformedLogs`,
+  reading the original event unless it is set, as the API reference says. A
+  destination's access policy is its resource policy, so the gate admits or
+  refuses another account's `PutSubscriptionFilter` on it. The log classes
+  guide's limits hold: an Essentials (formerly Infrequent Access) group,
+  under either input name, takes no metric filters, subscription filters,
+  transformers, Live Tail, anomaly detectors or field indexes, answers no
+  `GetLogEvents` or `FilterLogEvents`, and extracts no EMF; a Delivery group
+  keeps two days whatever its policy and runs no Insights queries. Read paths
+  answer `ESSENTIALS` for the class from December 2026, as the guide
+  announces. The vendored CloudWatch Logs model moved to the commit that adds
+  `ESSENTIALS`, which also brought `RETENTION_POLICY` and `dryRun`.
+- **Java regular expressions for `substituteString`.** The guide links Java SE
+  17's `Pattern` page and adds Python-style `(?P<name>…)` groups, so
+  `cwjCompile` parses that syntax and emits a pattern for
+  `github.com/dlclark/regexp2`'s backtracking engine with every class resolved
+  to explicit code point ranges: Java's ASCII `\w`, `\d`, `\s` and POSIX
+  classes (Unicode under `(?U)`), `\b` on `Character.isLetterOrDigit`, its five
+  line terminators for `.`, `^` and `$`, ASCII-only `(?i)` unless `(?u)`,
+  scripts, Unicode 13 blocks (generated by `scripts/gen-java-unicode-blocks.go`)
+  and categories, class unions and intersections, possessive quantifiers as
+  atomic groups, `\Q…\E`, and groups numbered left to right whatever their
+  names. A look-behind without a bounded length is refused, as `Pattern`
+  refuses it.
 - **Amazon CloudWatch alarm state.** `SetAlarmState` runs the new state's
   actions when the state changes, as the API reference says. A metric alarm
   keeps the set state only until its next evaluation, which returns it to its
@@ -1858,7 +1977,27 @@ fails once the row closes or the operation is served.
   the metric alarms it reads; a transition publishes the composite
   notification with `AlarmRule` and `TriggeringChildren` and the reason
   wording the alarm events show. A `SetAlarmState` on a composite alarm holds
-  until a child's state changes or the alarm is updated.
+  until a child's state changes or the alarm is updated; every child
+  transition is recorded on its parents, so a child that changes and changes
+  back between two evaluations ends the hold, where comparing snapshots of the
+  children's states had missed it. An update that changes the outcome says
+  "was updated and its new alarm rule evaluates to", where the simulator had
+  invented a reason. No AWS document states the rule's operator precedence or
+  the refusals, so they follow captures of CloudWatch published with
+  ministackorg/ministack#2260, aws/aws-cdk#13953,
+  hashicorp/terraform-provider-aws#19575 and
+  awsdocs/aws-cloudformation-user-guide#911: NOT binds tighter than AND and
+  AND tighter than OR; `PutCompositeAlarm` refuses a rule that does not parse
+  (`ValidationError` "Error in AlarmRule [Unsupported token '…' at char N,
+  must be: …]"), one with surrounding whitespace and one naming an alarm the
+  Region does not hold, where the simulator had stored the first never to
+  evaluate it and read a missing child as INSUFFICIENT_DATA; and
+  `DeleteAlarms` refuses more than one composite alarm per request and any
+  alarm a composite alarm references, so a child cannot go missing. A
+  `DeleteAlarms` that also names an alarm the Region does not hold deletes
+  the alarms it names correctly, as the API reference states, before it
+  answers `ResourceNotFound`. Where the captures stop, `BUGS.md` holds the
+  inference.
   Every metric and composite alarm transition also reaches the default
   event bus as a "CloudWatch Alarm State Change" event shaped like the User
   Guide's examples, and an alarm with `AlarmTagsPropagation` enabled carries
@@ -1875,6 +2014,214 @@ fails once the row closes or the operation is served.
   says, where the simulator had reset it to INSUFFICIENT_DATA. A composite
   alarm returns its `StateReasonData` and its real state timestamp over all
   three protocols, and its query-protocol describe its `StateReason`.
+- **Amazon CloudWatch anomaly detection, metric math, widget images and
+  Contributor Insights.** One evaluator answers `GetMetricData`, metric
+  alarms on a `Metrics` array and widget graphs over all three protocols:
+  arithmetic, the aggregate and rounding functions, `METRICS()` and
+  `ANOMALY_DETECTION_BAND`, refusing any other function with
+  `ValidationError` rather than answering an empty series. A trainer re-fits
+  each anomaly detector whenever its two-week window, less its excluded time
+  ranges, gains or loses a datapoint, moving it from `PENDING_TRAINING` to
+  `TRAINED` (or `TRAINED_INSUFFICIENT_DATA`); a band alarm creates the model
+  behind its band, as the User Guide says CloudWatch generates it, and
+  compares each datapoint with the band's edges under the three range
+  operators. `GetMetricWidgetImage` draws the widget's series, bands,
+  horizontal annotations, title and legend into a PNG with the standard
+  library and `x/image`'s bitmap font, where it had drawn an empty frame.
+  Contributor Insights reads only the events a rule's log groups ingested
+  while the rule was ENABLED, kept as enabled windows, so disabling a rule
+  stops its report growing.
+- **Amazon CloudWatch metric math, metric math anomaly detectors and widget
+  options.** The evaluator implements every function the User Guide's "Math
+  expressions with metrics" table lists and the operators it defines, to the
+  page's own examples: comparison and logical operators, arrays of time series
+  in brackets, missing values counting as 0 between two series, `IF` with the
+  tables' exact drop-or-zero rules, `FILL` with a number, a series, `REPEAT`
+  or `LINEAR`, `SORT`, `SLICE`, `FIRST`, `LAST`, `RATE`, `DIFF`,
+  `RUNNING_SUM`, the calendar functions, `PERIOD`, `TIME_SERIES`, `SEARCH`
+  with the search syntax page's tokenization and Boolean operators,
+  `INSIGHT_RULE_METRIC` over a Contributor Insights report, and `LAMBDA`,
+  which invokes a function that grants the data source principal with the
+  documented `GetMetricData` event, holds it to 10 seconds (4.5 for an alarm)
+  and 6 MB, discards off-grid datapoints and carries its `StatusCode` and
+  `Messages` into the result. An expression that starts with `SELECT` is a
+  Metrics Insights query with `SCHEMA`, `WHERE`, `GROUP BY`, `ORDER BY` and
+  `LIMIT`. `ANOMALY_DETECTION_BAND` answers its lower edge first, as
+  `LAST(ANOMALY_DETECTION_BAND(m1))` being the upper bound requires, where the
+  simulator had answered the upper first. `PutAnomalyDetector` accepts a
+  `MetricMathAnomalyDetector`, validated against the guide's list of what
+  anomaly detection on metric math does not support, returns an
+  `AnomalyDetectorId`, and `DescribeAnomalyDetectors` and
+  `DeleteAnomalyDetector` take ids, types, dimensions and pages; a band alarm
+  on an expression generates the metric math model. `AdaptationSpeed`,
+  `OutlierFilteringStrength` and `PeriodicSpikes` shape the model in the
+  direction the API Reference describes each. `GetMetricWidgetImage` draws
+  vertical annotations, a right y-axis with its own scale and caption,
+  stacked graphs, the pie view and, without `liveData`, only periods that
+  ended a minute ago, and translucent fills blend rather than tint, as
+  premultiplied colours had made them. `SERVICE_QUOTA` answers the applied
+  value of the quota whose usage metric its argument is, and
+  `DB_PERF_INSIGHTS` reads Performance Insights at the periods and data point
+  counts the metric math table states. Metrics Insights `tag.` filters wait
+  on Observability Admin and AWS Resource Explorer (BUG-3990); the details no
+  source states stay in BUG-3951.
+- **Amazon CloudWatch refusals and records from public captures.** Where no
+  AWS document states a detail, a verbatim public record of CloudWatch's
+  answer to a real client counts as a capture, vendored by
+  `scripts/fetch-cloudwatch-captures.sh`: LocalStack's AWS-validated
+  CloudWatch snapshot file, pinned at its commit, and Grafana community posts,
+  served as Markdown by Discourse and pinned at their SHA-256 like an AWS
+  documentation page. `GetMetricData` names the expression a refusal arose in
+  as "Error in expression 'e1': …", once, however deep the expression that
+  failed; an unknown id answers "ID 't5xx' not found"; a scalar result "The
+  return value of the expression must be TimeSeries or Array[TimeSeries]"; a
+  function given operands it does not take "Unsupported operand type(s) for
+  PERIOD: '[Array[TimeSeries]]'", naming each operand Scalar, TimeSeries,
+  Array[TimeSeries] or, for an array literal holding numbers, its element
+  types; and a Metrics Insights query with another function "Invalid syntax.
+  'ANOMALY_DETECTION_BAND' is not a valid aggregate function". `PERIOD` reads
+  the period of any single time series. `DescribeAnomalyDetectors` leaves
+  out `MetricCharacteristics` for a detector created without it, as the
+  snapshot records, where the simulator had answered an empty structure.
+- **`GetMetricData` paging and dynamic labels.** All three protocols return
+  at most `MaxDatapoints` points, 100,800 by default, in `ScanBy` order across
+  the results in request order, mark a result with points left
+  `PartialData`, and page by a `NextToken` bound to the request it pages,
+  which a different request refuses with `InvalidNextToken`. A request that
+  performs a math expression gets no `NextToken`, as `MetricDataResult`
+  states. A label expands the dynamic values the "Use dynamic labels" page
+  lists over the whole series, at most six of them and `${LABEL}` once,
+  with `LabelOptions.Timezone` moving the times; no page states how a value
+  is written, so a number is written in its shortest form, a time as
+  `2006-01-02 15:04:05 -0700` and a relative time in days, hours, minutes and
+  seconds. `metricsKey` sorts a metric's dimensions, as CloudWatch treats the
+  set as unordered.
+- **AWS usage metrics and Service Quotas.** CloudWatch counts each signed
+  call to a service the "AWS API usage metrics" table lists in `AWS/Usage`
+  `CallCount` with that table's `Service` value; CloudWatch and Amazon ECR
+  count only the operations their own pages list, Amazon ECR without a
+  `Class` dimension, and CloudWatch Logs also counts `CallCount`,
+  `ErrorCount` and `ThrottleCount` in `AWS/Logs`. The hook sits where
+  CloudTrail records a call, before the data-event filter. `ResourceCount`
+  follows each usage page: running On-Demand vCPUs by the Amazon EC2 classes
+  and the Fargate class, Amazon ECR's repositories and images per repository
+  under `Type` `RESOURCE`, and Firehose streams, published at each page's
+  cadence and at once when a call to the service changes a count. The quota
+  catalog is generated from 36 vendored General Reference pages and the
+  Amazon EC2 instance type quota page by `scripts/gen-aws-service-quotas.go`:
+  a row counts only when its Adjustable cell links the Service Quotas
+  console, the one place a page names a quota code, so non-adjustable quotas
+  stay out, and the name of a service is its page section's heading. A quota
+  names a usage metric where a usage page ties the two, and a request-rate
+  quota names its operation's `CallCount`. No source states when AWS approves
+  an increase, so Service Quotas approves every request it accepts and
+  applies the value; `CreateSupportCase` therefore always finds the request
+  past `PENDING`. A template needs an organization with all features, the
+  management account and trusted access, holds ten requests, and requests
+  its increases for every account the organization then creates. Automatic
+  Management keeps its configuration and accepts only `NotifyOnly`, as the
+  model says. A utilization report measures the last hour of each usage
+  metric against the applied value, per second for a rate quota. AWS
+  Lambda's concurrency limit, Amazon RDS's DB instance quota and
+  `DescribeAccountAttributes` maxima, Amazon VPC's security group checks and
+  IAM's `GetAccountSummary` quotas read the applied value, which moved Read
+  replicas per primary to the page's 15 and Managed policies per role to 20.
+- **Amazon RDS Performance Insights.** `EnablePerformanceInsights`,
+  `PerformanceInsightsRetentionPeriod` (7, a multiple of 31 up to 713, or
+  731), `PerformanceInsightsKMSKeyId` (the `aws/rds` key by default) and
+  `DatabaseInsightsMode` take effect at once on create and modify. Every
+  second the simulator samples each enabled instance's running engine:
+  `pg_stat_activity` on PostgreSQL, with `Type:Event` wait names and CPU for
+  a session waiting on nothing; the Performance Schema's current statements
+  and waits on MySQL, whose consumers Performance Insights turns on; and,
+  where the Performance Schema is off, the process list every five seconds,
+  as the User Guide's Performance Schema page describes. A statement's
+  digest replaces literals with `?` unless the engine gives one, and IDs are
+  hashes, with `pi-` IDs where the engine has none. Counters come once a
+  minute from the engine's statistics and the host's `/proc`, rates from
+  two readings. Load samples also go to `AWS/RDS` `DBLoad`, `DBLoadCPU` and
+  `DBLoadNonCPU`. Samples older than the retention go hourly. An analysis
+  report compares its window's load with the equally long period before it:
+  a higher load is a `HighDBLoad` insight supported by the `DominatingSQLs`
+  that carried it, with the recommendation text the model's example uses;
+  no source states the thresholds, so severity is high from ten times the
+  baseline and medium from twice. `AdditionalMetrics` SQL statistics and the
+  `db.blocking_*` groups are not collected. The SDK and the CLI speak
+  rpc-v2-cbor, which `awsCBORBridge` serves from the AWS JSON 1.1 handlers
+  with shapes `gen-cloudwatch-cbor-shapes.go` now generates per model.
+- **Amazon CloudWatch Logs anomaly detection, scheduled queries and
+  imports.** A log anomaly detector moves INITIALIZING, TRAINING (two weeks of
+  its group's events), ANALYZING on a one-second sweep, then analyzes once per
+  its own `evaluationFrequency` the events ingested since its last run: a new
+  pattern, a surge in a known pattern's count and a new value of a discrete
+  dynamic token become anomalies, visible for `anomalyVisibilityTime` days
+  (21 by default, as the guide says) and counted in the `AWS/Logs`
+  `AnomalyCount` metric; `UpdateAnomaly` suppresses an anomaly or a pattern,
+  LIMITED or INFINITE, or ends the suppression. A scheduled query fires on its
+  cron expression through `sim/cron`, assumes its execution role as
+  `logs.amazonaws.com`, delivers to Amazon S3 and a lookup table through
+  their delivery roles, sends "Scheduled Query Completed" to the default
+  event bus and records each run for `GetScheduledQueryHistory`, where the
+  history had been empty. `CreateImportTask` checks that the event data store
+  is ENABLED and that the role trusts `cloudtrail.amazonaws.com`, then imports
+  the store's events in background batches, where the task had settled
+  COMPLETED having read nothing.
+- **Amazon CloudWatch Logs data protection, field indexes, metric
+  extraction and ingestion limits.** A data protection policy, account-level
+  or a log group's own, is validated as the data protection guide defines it
+  (two statements, Audit with a `FindingsDestination` and Deidentify with an
+  empty `MaskConfig`, matching `DataIdentifier` arrays, at most ten custom
+  identifiers of the guide's character sets, 30,720 characters) and takes
+  effect at ingestion in every class but Delivery: the two policies are
+  cumulative, each match becomes asterisks, and the event keeps its
+  original beside the masked text, so every egress (reads, Insights, metric
+  filters, subscriptions, Live Tail) sees masked data and `unmask` on
+  `GetLogEvents`, `FilterLogEvents`, `GetLogRecord`, `GetLogObject` and
+  Insights' `unmask(@message)` shows the original to a caller holding
+  `logs:Unmask` on the group. The 98 managed identifiers the guide's type
+  pages list match their published formats, checksums (Luhn, IBAN, DEA, NPI,
+  NHS, CPF, CNPJ, DNI) and keywords within 30 characters, with the spacing
+  variants the guide allows; findings reports go to a CloudWatch Logs group,
+  an S3 bucket and a Firehose stream as `delivery.logs.amazonaws.com`, after
+  the put grants it as the caller (the `AWSLogDeliveryWrite20150319`
+  resource policy, the bucket policy's two statements, the
+  `LogDeliveryEnabled` tag), and `LogEventsWithFindings` counts the events.
+  Field index policies are validated (twenty fields, `Fields` and `FieldsV2`
+  disjoint, `@@` for custom `@` fields), keyed by group name and reported
+  with the group's ARN; a group's own policy overrides the account-level
+  policies that select groups, events are indexed at ingestion for 30 days
+  with the default fields, `DescribeFieldIndexes` reports DEFAULT, CUSTOM and
+  INACTIVE indexes, and Insights' `filterIndex` reads only indexed events
+  and reports the skipped ones in `estimatedRecordsSkipped`. A metric
+  extraction policy's document and selection limits (one unscoped or five
+  scoped, one `NOT IN`, no overlap) are enforced, and a selected group's EMF
+  events create no metrics and count in `EMFDisabledErrors`. `PutLogEvents`
+  refuses a batch over 10,000 events or 1,048,576 bytes, an event over
+  1,048,576 bytes (both counting 26 bytes per event), an unordered batch and
+  one spanning over 24 hours, and rejects too-old, expired and too-new events
+  in `rejectedLogEventsInfo`. Amazon Kinesis Data Streams holds a record to
+  the stream's maximum record size and `PutRecords` to 500 records and
+  10 MiB; Amazon Data Firehose's `PutRecordBatch` refuses a batch over 500
+  records, 1,000 KiB a record or 4 MiB as a whole; AWS Lambda refuses a
+  synchronous request over 6 MB, an asynchronous one over 1 MB and an
+  `InvokeAsync` one over 256 KB with `RequestTooLargeException`, and turns a
+  synchronous response over 6 MB into `Function.ResponseSizeTooLarge`.
+- **CloudWatch Logs resource policies and data sources.** The account's
+  CloudWatch Logs resource policies guard every log group and log stream:
+  the IAM gate reads them for any such ARN, through an index keyed on the
+  store's generation, and resolves a log-stream ARN to its group, so an AWS
+  service writing as its own principal (an Amazon EventBridge CloudWatch Logs
+  target, data protection findings as `delivery.logs.amazonaws.com`) is
+  refused unless a policy grants it, as the EventBridge user guide requires.
+  Each ingested event carries a data source: the name and type its log
+  group's `cw:datasource:name` and `cw:datasource:type` tags give, with
+  format `Custom`, else `Unknown` with format `Default`, as the data source
+  discovery guide defines them. Insights reads them as `@data_source_name`,
+  `@data_source_type` and `@data_format`; ingestion records each group's
+  schema per data source, which answers `GetLogFields` and
+  `ListAggregateLogGroupSummaries`; and an account-level field index policy
+  selecting a data source indexes that source's events alongside the
+  group's own policy.
 - **Test fidelity: Amazon SNS, AWS Systems Manager, Amazon RDS.** Amazon SNS
   confirms an HTTP or email subscription with an opaque random token that only
   the confirmation message carries, where it had been the subscription ARN
@@ -2440,6 +2787,12 @@ cached provider at all.
 The node agent's image build downloads Firecracker and its kernel with
 twelve retries fifteen seconds apart on any error, because GitHub's release
 host answered 504 past five quick retries and failed a cold build.
+A cold build hung for a test's whole twelve minutes, twice. Once the build
+printed each step's output, the log named the step: apt fetching from Ubuntu's
+archive, which stalled every attempt on GitHub's runners. The agent and
+Firecracker are static binaries, so the runtime stage moved to Alpine, whose
+CDN serves the same tools (`debugfs` from `e2fsprogs-extra`, GNU `tar` for
+`--numeric-owner`), in bounded attempts.
 The docs jobs restore the pre-commit hook environments from the Actions
 cache, keyed on `.pre-commit-config.yaml`: building shellcheck-py's
 downloads shellcheck from GitHub releases, which answered 504 and failed the

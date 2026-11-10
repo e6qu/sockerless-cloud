@@ -10,7 +10,7 @@
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.
-- **The fidelity gaps the comment pass surfaced** (BUG-3779 to 3784, 3786 to 3789 and 3791), service
+- **The fidelity gaps the comment pass surfaced** (BUG-3779, 3780, 3782 to 3784, 3786 to 3789 and 3791), service
   by service, each with its SDK, CLI and Terraform tests.
 
 - **M1 of `PLAN.md`: a complete 3.x release, then the App token**
@@ -24,6 +24,16 @@
   `docs/so-you-want-to-build-a-cloud.md` into a presentation. Keep its gap list
   in step with `PLAN.md` M3 and its LocalStack and Floci tables dated and
   sourced. Change a tutorial step only together with the test that runs it.
+- **CloudWatch Logs follow-ups.** Capture the transformer choices no source
+  fixes (BUG-3936); have the AWS services that log to CloudWatch Logs deliver
+  their records, classified under their data sources (BUG-3983); capture the
+  anomaly detection, metric math, widget, Contributor Insights, scheduled
+  query, import and data protection findings details no source states
+  (BUG-3951, BUG-3952, BUG-3982), the `AlarmRule` refusals and tag
+  propagation details no public record shows (BUG-3909, BUG-3544), and vendor
+  the two GitHub-quoted metric math refusals BUG-3951 cites; serve
+  Observability Admin's telemetry enrichment and AWS Resource Explorer's
+  index so Metrics Insights `tag.` filters and groups work (BUG-3990).
 - **Core-service gaps.** Azure Managed Disks as block devices (BUG-3931),
   Cloud Monitoring (BUG-3522) and Filestore; the managed caches' remaining
   gaps (BUG-3835, BUG-3840 and BUG-3845).

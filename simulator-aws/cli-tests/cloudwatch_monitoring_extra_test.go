@@ -46,7 +46,7 @@ func TestCloudWatchCLI_ManagedInsightRules(t *testing.T) {
 func TestCloudWatchCLI_InsightRuleReport(t *testing.T) {
 	t.Parallel()
 	name := "cli-report-rule"
-	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
+	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"LogFormat":"JSON","Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
 	runCLI(t, awsCLI("cloudwatch", "put-insight-rule", "--rule-name", name, "--rule-definition", def))
 	defer func() { _ = awsCLI("cloudwatch", "delete-insight-rules", "--rule-names", name).Run() }()
 

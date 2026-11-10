@@ -153,6 +153,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerGlue(awsRouter, srv)
 	registerApplicationAutoScaling(awsRouter, srv)
 	registerBudgets(awsRouter, srv)
+	registerServiceQuotas(awsRouter, srv)
 
 	queryRouter := NewAWSQueryRouter()
 	registerEC2(queryRouter, srv)
@@ -160,6 +161,8 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerSTS(queryRouter, srv)
 	registerSNS(queryRouter, srv)
 	registerRDS(queryRouter, srv)
+	registerRDSPerformanceInsights(srv, options.startBackgroundEvaluators)
+	registerPerformanceInsights(awsRouter, srv)
 	registerElastiCache(queryRouter, srv)
 	registerELBv2(queryRouter, srv)
 	registerAutoScaling(queryRouter, srv)
@@ -266,6 +269,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	startECSServiceMetricsPublisher(srv)
 	startELBv2RequestMetricsPublisher(srv)
 	if options.startBackgroundEvaluators {
+		startAWSUsageMetrics(srv)
 		startAppScalingEvalLoop(srv)
 		if err := recoverLambdaInvocations(); err != nil {
 			return nil, nil, nil, fmt.Errorf("restore AWS Lambda invocations: %w", err)

@@ -95,7 +95,7 @@ func TestCloudWatch_CompositeAlarm(t *testing.T) {
 	name := "sdk-composite"
 	_, err := client.PutCompositeAlarm(ctx, &cloudwatch.PutCompositeAlarmInput{
 		AlarmName: aws.String(name),
-		AlarmRule: aws.String("ALARM(child-1) OR ALARM(child-2)"),
+		AlarmRule: aws.String("TRUE"),
 		Tags:      []cwtypes.Tag{{Key: aws.String("team"), Value: aws.String("sre")}},
 	})
 	require.NoError(t, err)
@@ -185,7 +185,11 @@ func TestCloudWatch_AnomalyDetector(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, out.AnomalyDetectors, 1)
-	assert.Equal(t, cwtypes.AnomalyDetectorStateValuePendingTraining, out.AnomalyDetectors[0].StateValue)
+	det := out.AnomalyDetectors[0]
+	assert.Equal(t, cwtypes.AnomalyDetectorStateValuePendingTraining, det.StateValue, "a detector on a metric without data waits for training")
+	require.NotNil(t, det.Configuration)
+	assert.Empty(t, det.Configuration.ExcludedTimeRanges)
+	assert.Nil(t, det.MetricCharacteristics, "a detector created without MetricCharacteristics describes none")
 
 	_, err = client.DeleteAnomalyDetector(ctx, &cloudwatch.DeleteAnomalyDetectorInput{
 		SingleMetricAnomalyDetector: &cwtypes.SingleMetricAnomalyDetector{
@@ -207,7 +211,7 @@ func TestCloudWatch_InsightRules(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-insight"
-	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
+	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"LogFormat":"JSON","Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
 	_, err := client.PutInsightRule(ctx, &cloudwatch.PutInsightRuleInput{
 		RuleName:       aws.String(name),
 		RuleDefinition: aws.String(def),

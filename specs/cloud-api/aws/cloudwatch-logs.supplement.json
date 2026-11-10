@@ -23,6 +23,20 @@
         "replaces": "^[\\w-_]*$",
         "with": "^[\\w\\-_:]*$"
       }
+    },
+    "com.amazonaws.cloudwatchlogs#FieldIndexName": {
+      "_evidence": [
+        "DescribeFieldIndexes reports the DEFAULT index category, which the",
+        "logs-api-describe-field-indexes page illustrates with \"@logStream\" and",
+        "\"@data_format\", and logs-field-indexing lists the default indexes of",
+        "every Standard-class log group starting with \"@logStream\". The declared",
+        "pattern admits no \"@\", so no default index name the service returns can",
+        "match it. The correction admits the at sign and changes nothing else."
+      ],
+      "pattern": {
+        "replaces": "^[\\.\\-_/#A-Za-z0-9]+$",
+        "with": "^[\\.\\-_/#A-Za-z0-9@]+$"
+      }
     }
   }
 }

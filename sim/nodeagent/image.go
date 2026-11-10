@@ -32,7 +32,7 @@ const (
 	firecrackerVersion = "v1.15.1"
 	kernelVersion      = "6.1.155"
 	goImage            = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18"
-	runtimeImage       = "mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852"
+	runtimeImage       = "mirror.gcr.io/library/alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
 )
 
 // The release archives and CI kernels Firecracker publishes, by architecture.
@@ -59,7 +59,9 @@ RUN for attempt in 1 2 3 4 5 6 7 8; do timeout 50 go list -deps ./nodeagent ./gu
 RUN go build -trimpath -o /out/nodeagent ./nodeagent && go build -trimpath -o /out/guestinit ./guestinit
 
 FROM %[2]s
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl e2fsprogs iproute2 nftables && rm -rf /var/lib/apt/lists/*
+# Ubuntu's archive stalled cold builds on GitHub's runners; Alpine's CDN
+# serves the same tools, and each attempt is bounded.
+RUN for attempt in 1 2 3 4 5 6; do timeout 120 apk add --no-cache ca-certificates curl e2fsprogs e2fsprogs-extra iproute2 nftables tar && exit 0; sleep 10; done; exit 1
 RUN set -eu; \
     curl -fsSL --speed-limit 1024 --speed-time 30 --retry 12 --retry-delay 15 --retry-all-errors -o /tmp/fc.tgz https://github.com/firecracker-microvm/firecracker/releases/download/%[3]s/firecracker-%[3]s-%[4]s.tgz; \
     echo "%[5]s  /tmp/fc.tgz" | sha256sum -c -; \
@@ -203,8 +205,9 @@ func drainBuild(stream io.Reader) error {
 		} else if err != nil {
 			return fmt.Errorf("malformed build stream: %w", err)
 		}
-		if strings.TrimSpace(event.Stream) != "" {
-			last = strings.TrimSpace(event.Stream)
+		if line := strings.TrimSpace(event.Stream); line != "" {
+			last = line
+			fmt.Fprintf(os.Stderr, "[node-agent build] %s\n", line)
 		}
 		if msg := event.Error + event.ErrorDetail.Message; msg != "" {
 			return fmt.Errorf("%s (last output: %s)", msg, last)

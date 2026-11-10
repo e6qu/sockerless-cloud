@@ -66,54 +66,6 @@ func TestLogs_S3TableIntegrationSourceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestLogs_GetLogFields expects the structural @-fields and the keys parsed
-// from the group's stored JSON events.
-func TestLogs_GetLogFields(t *testing.T) {
-	t.Parallel()
-	cw := cwLogsClient()
-	group, stream := "/test/getlogfields", "s1"
-	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
-	require.NoError(t, err)
-	defer cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(group)})
-	_, err = cw.CreateLogStream(ctx, &cloudwatchlogs.CreateLogStreamInput{
-		LogGroupName: aws.String(group), LogStreamName: aws.String(stream),
-	})
-	require.NoError(t, err)
-
-	now := time.Now().UnixMilli()
-	_, err = cw.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
-		LogGroupName: aws.String(group), LogStreamName: aws.String(stream),
-		LogEvents: []cwlogtypes.InputLogEvent{
-			{Timestamp: aws.Int64(now), Message: aws.String(`{"level":"ERROR","code":500,"ok":true}`)},
-		},
-	})
-	require.NoError(t, err)
-
-	fields, err := cw.GetLogFields(ctx, &cloudwatchlogs.GetLogFieldsInput{
-		DataSourceName: aws.String(group),
-		DataSourceType: aws.String("LOG_GROUP"),
-	})
-	require.NoError(t, err)
-	byName := map[string]string{}
-	for _, f := range fields.LogFields {
-		require.NotNil(t, f.LogFieldType)
-		byName[aws.ToString(f.LogFieldName)] = aws.ToString(f.LogFieldType.Type)
-	}
-	assert.Contains(t, byName, "@timestamp")
-	assert.Contains(t, byName, "@message")
-	assert.Equal(t, "string", byName["level"])
-	assert.Equal(t, "double", byName["code"])
-	assert.Equal(t, "boolean", byName["ok"])
-
-	// An unknown data source yields an empty field set.
-	empty, err := cw.GetLogFields(ctx, &cloudwatchlogs.GetLogFieldsInput{
-		DataSourceName: aws.String("/test/getlogfields-missing"),
-		DataSourceType: aws.String("LOG_GROUP"),
-	})
-	require.NoError(t, err)
-	assert.Empty(t, empty.LogFields)
-}
-
 func TestLogs_ListLogGroupsForQuery(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()

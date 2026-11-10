@@ -25,13 +25,13 @@ flowchart LR
 
 | Cloud | What | Upstream | Fetched by | Pinned to |
 |---|---|---|---|---|
-| AWS | Smithy 2.0 JSON models, one per service (42) | `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2), the models the AWS SDKs are generated from | `scripts/fetch-aws-spec.sh <service> [<ref>]` | A commit SHA |
-| AWS | The Service Reference: each action's resource types, ARN formats and condition keys (43 services) | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>` | The document's content hash |
+| AWS | Smithy 2.0 JSON models, one per service (45) | `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2), the models the AWS SDKs are generated from | `scripts/fetch-aws-spec.sh <service> [<ref>]` | A commit SHA |
+| AWS | The Service Reference: each action's resource types, ARN formats and condition keys (45 services) | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>` | The document's content hash |
 | Google Cloud | API Discovery documents, one per API version (33) | `https://<api>.googleapis.com/$discovery/rest?version=<v>`, or the central `https://www.googleapis.com/discovery/v1/apis/<api>/<v>/rest` | `scripts/fetch-gcp-discovery.sh <host> <version>` | The document's `revision` |
 | Google Cloud | Protocol Buffers definitions of the gRPC services | [`googleapis/googleapis`](https://github.com/googleapis/googleapis), compiled into the `cloud.google.com/go` client libraries | The `…pb` packages the simulator imports for its gRPC listener | The client library version in `go.mod` |
 | Azure | OpenAPI 2.0 (Swagger) documents per resource provider and API version, for Azure Resource Manager and the data planes (137) | `specification/<service>/resource-manager/…` and `…/data-plane/…` in [`Azure/azure-rest-api-specs`](https://github.com/Azure/azure-rest-api-specs) | `scripts/fetch-azure-spec.sh <upstream-path> <local-name>` | A commit SHA |
 | All | Documentation pages that state what a specification leaves out: timeouts, defaults, state machines, error texts, event tables | AWS guides on GitHub and `docs.aws.amazon.com`, Google Cloud documentation, Microsoft Learn's Markdown sources in the `MicrosoftDocs` organization | `scripts/fetch-aws-doc.sh`, `fetch-aws-docs-page.sh`, `fetch-gcp-doc.sh`, `fetch-azure-doc.sh` | The commit that last touched the page, or the page's content hash |
-| All | Published catalogs a service reads: Amazon EC2 instance types, Elastic Load Balancing hosted zones, Google Cloud Armor expression sets, Cloud Interconnect locations, the Kudu sources Azure App Service runs | The clouds' own published files | `scripts/fetch-aws-ec2-instance-types.go`, `fetch-aws-elb-hosted-zones.sh`, `fetch-gcp-cloud-armor-expression-sets.sh`, `fetch-gcp-interconnect-*.sh`, `fetch-kudu-source.sh` | As each script records |
+| All | Published catalogs a service reads: Amazon EC2 instance types, Elastic Load Balancing hosted zones, Google Cloud Armor expression sets, Cloud Interconnect locations, the Kudu sources Azure App Service runs, and what the CloudWatch Logs transformers follow beyond AWS (the OCSF schemas and mappings, CLDR 39 and the JDK 17 sources) | The clouds' and the standards' own published files | `scripts/fetch-aws-ec2-instance-types.go`, `fetch-aws-elb-hosted-zones.sh`, `fetch-cloudwatch-logs-transformer-sources.sh`, `fetch-gcp-cloud-armor-expression-sets.sh`, `fetch-gcp-interconnect-*.sh`, `fetch-kudu-source.sh` | As each script records |
 
 - **Format.** Every file is gzipped, never edited, and committed. CI and
   builds read only the committed copies; nothing downloads a specification at
@@ -50,8 +50,11 @@ A specification states shapes, not behaviour. The EC2 model says
 say the instance waits in `pending` until its machine boots, or that a deleted
 AWS KMS key waits out a seven-to-thirty-day pending window. That comes from the
 vendored documentation pages. Where they're silent too, the simulator matches a
-capture from the real cloud. Until a capture exists, a `BUGS.md` row records
-the gap and the reasoning behind the chosen behaviour.
+capture from the real cloud. A verbatim public record of the cloud's answer to
+a real client counts as one: `scripts/fetch-cloudwatch-captures.sh` vendors
+LocalStack's AWS-validated snapshot files, pinned at their commit, and forum
+posts quoting a response, pinned at their SHA-256. Until a capture exists, a
+`BUGS.md` row records the gap and the reasoning behind the chosen behaviour.
 
 ### Corrections: supplements
 
@@ -75,9 +78,12 @@ otherwise get wrong by hand. After every re-vendor,
 | Generated file | From | What it gives the handlers |
 |---|---|---|
 | `simulator-aws/aws_error_members_gen.go` | Every vendored Smithy model | The member each error shape carries its message under (`message` or `Message`; the models disagree and each SDK reads exactly one), the service shape behind each `X-Amz-Target`, and each service's SigV4 signing name |
-| `simulator-aws/cloudwatch_cbor_shapes_gen.go` | The Amazon CloudWatch model | Each operation's shapes reduced to what Smithy RPC v2 CBOR and AWS JSON 1.0 encode differently, so one handler serves both protocols |
+| `simulator-aws/cloudwatch_cbor_shapes_gen.go`, `simulator-aws/pi_cbor_shapes_gen.go` | The Amazon CloudWatch and Amazon RDS Performance Insights models | Each operation's shapes reduced to what Smithy RPC v2 CBOR and AWS JSON encode differently, so one handler serves both protocols |
+| `simulator-aws/servicequotas_catalog_gen.go` | The vendored "endpoints and quotas" pages of the AWS General Reference and the Amazon EC2 instance type quota page | Each quota those pages publish with a Service Quotas code, for the services the simulator serves: its name, default per Region, unit, period and description |
 | `simulator-aws/stepfunctions_rest_integrations_gen.go` | The models' HTTP traits | The REST routing table for AWS Step Functions' AWS SDK integrations, which the IAM gate also uses to name a REST request's operation |
 | `simulator-aws/iam_resource_types_gen.go` | The Service Reference | The resource types and ARN formats each action authorizes against, which the Smithy models don't carry |
+| `simulator-aws/cloudwatch_logs_transformer_ocsf_gen.go` | The OCSF 1.1.0 and 1.5.0 schemas and Amazon Security Lake's mapping dossiers in `ocsf/examples` | The classes, enumerations and attribute types the CloudWatch Logs `parseToOCSF` processor writes, and each dossier's constant, direct and conditional mappings |
+| `simulator-aws/cloudwatch_logs_transformer_cldr_gen.go` | CLDR 39 and the JDK 17 time zone names | The month, day, quarter, era, day period and time zone names, metazones, week data and day period rules Java SE 17's `DateTimeFormatter` reads for the `dateTimeConverter` processor |
 | `simulator-gcp/audit_methods_vendored.json` | The vendored audit-logging pages | Which methods each service audits, under which `methodName` and log category, checking which permissions |
 
 The conformance tests check each generated table against the specification it

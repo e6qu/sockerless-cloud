@@ -18,6 +18,8 @@ TestIAMCLI_AccountPasswordPolicy	changes an account-wide setting other tests rea
 TestIAM_AccountAlias_CLI	changes an account-wide setting other tests read
 TestKinesisCLI_AccountSettings	changes an account-wide setting other tests read
 TestLogsAccountAndQueryPolicyCLI	changes an account-wide setting other tests read
+TestLogs_AccountSubscriptionPolicyCLI	changes an account-wide setting other tests read
+TestLogs_AccountTransformerAndRetentionPoliciesCLI	changes an account-wide setting other tests read
 TestOrganizationsCLI_DelegatedAdminAndServiceAccess	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_DescribeAndList	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_GovCloudAccount	creates, changes or deletes the account's one organization, which other tests read

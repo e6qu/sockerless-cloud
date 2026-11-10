@@ -12,7 +12,7 @@ func TestResourceTagsCLI_CreateTimeRoundTrip(t *testing.T) {
 		runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", name,
 			"--tags", "Name=test,env=ci"))
 		arn := strings.TrimSpace(runCLI(t, awsCLI("logs", "describe-log-groups",
-			"--log-group-name-prefix", name, "--query", "logGroups[0].arn", "--output", "text")))
+			"--log-group-name-prefix", name, "--query", "logGroups[0].logGroupArn", "--output", "text")))
 		got := strings.TrimSpace(runCLI(t, awsCLI("logs", "list-tags-for-resource",
 			"--resource-arn", arn, "--query", "tags.Name", "--output", "text")))
 		if got != "test" {

@@ -74,7 +74,7 @@ func TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Len(t, groups.LogGroups, 1)
-		logGroupARNs = append(logGroupARNs, aws.ToString(groups.LogGroups[0].Arn))
+		logGroupARNs = append(logGroupARNs, aws.ToString(groups.LogGroups[0].LogGroupArn))
 	}
 	tail, err := logsAPI.StartLiveTail(testCtx, &cloudwatchlogs.StartLiveTailInput{LogGroupIdentifiers: logGroupARNs})
 	require.NoError(t, err)

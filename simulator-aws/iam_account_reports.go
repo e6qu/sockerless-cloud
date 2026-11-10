@@ -106,7 +106,8 @@ func iamResultXML(w http.ResponseWriter, op, inner string) {
 		op, op, inner, op, sim.NewUUID(), op)
 }
 
-// handleIAMGetAccountSummary counts the entities in the IAM stores and reports the fixed account quotas.
+// handleIAMGetAccountSummary counts the entities in the IAM stores and reports the account quotas: the ones
+// Service Quotas publishes with a code as it applies them, the rest as IAM fixes them.
 func handleIAMGetAccountSummary(w http.ResponseWriter, r *http.Request) {
 	acct := iamRequestAccount(r)
 	users := len(iamUsersIn(acct).List())
@@ -139,26 +140,26 @@ func handleIAMGetAccountSummary(w http.ResponseWriter, r *http.Request) {
 		{"Users", users},
 		{"UsersQuota", 5000},
 		{"Groups", groups},
-		{"GroupsQuota", 300},
+		{"GroupsQuota", sqQuotaLimit("iam", "L-F4A5425F")},
 		{"Roles", roles},
-		{"RolesQuota", 1000},
+		{"RolesQuota", sqQuotaLimit("iam", "L-FE177D64")},
 		{"Policies", policies},
-		{"PoliciesQuota", 1500},
+		{"PoliciesQuota", sqQuotaLimit("iam", "L-E95E4862")},
 		{"PolicyVersionsInUse", policyVersions},
 		{"PolicyVersionsInUseQuota", 10000},
 		{"InstanceProfiles", instanceProfiles},
-		{"InstanceProfilesQuota", 1000},
+		{"InstanceProfilesQuota", sqQuotaLimit("iam", "L-6E65F664")},
 		{"ServerCertificates", 0},
-		{"ServerCertificatesQuota", 20},
+		{"ServerCertificatesQuota", sqQuotaLimit("iam", "L-BF35879D")},
 		{"MFADevices", len(devices)},
 		{"MFADevicesInUse", mfaInUse},
 		{"AccountMFAEnabled", present(iamOwnerMFAActive(root))},
 		{"AccountAccessKeysPresent", present(len(iamAccessKeysForUser(acct, "")) > 0)},
 		{"AccountSigningCertificatesPresent", present(len(iamOwnerSigningCerts(root)) > 0)},
 		{"AccessKeysPerUserQuota", 2},
-		{"AttachedPoliciesPerUserQuota", 10},
+		{"AttachedPoliciesPerUserQuota", sqQuotaLimit("iam", "L-4019AD8B")},
 		{"AttachedPoliciesPerGroupQuota", 10},
-		{"AttachedPoliciesPerRoleQuota", 10},
+		{"AttachedPoliciesPerRoleQuota", sqQuotaLimit("iam", "L-0DA4ABF3")},
 		{"GroupsPerUserQuota", 10},
 		{"SigningCertificatesPerUserQuota", 2},
 		{"UserPolicySizeQuota", 2048},

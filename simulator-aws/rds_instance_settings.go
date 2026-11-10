@@ -404,6 +404,9 @@ func rdsRequestedInstanceSettings(r *http.Request, instance *RDSInstance) (strin
 		}
 		instance.CACertificateIdentifier = ca
 	}
+	if code, message := rdsRequestedPerformanceInsights(r, instance); code != "" {
+		return code, message
+	}
 	rdsAssignInstanceDefaults(instance)
 	return "", ""
 }
@@ -645,6 +648,7 @@ func renderRDSInstanceSettings(i RDSInstance) string {
 	if i.CACertificateIdentifier != "" {
 		fmt.Fprintf(&b, "<CACertificateIdentifier>%s</CACertificateIdentifier>", xmlEscape(i.CACertificateIdentifier))
 	}
+	b.WriteString(renderRDSPerformanceInsights(i))
 	if i.ServerCertificateValidTill != "" {
 		fmt.Fprintf(&b, "<CertificateDetails><CAIdentifier>%s</CAIdentifier><ValidTill>%s</ValidTill></CertificateDetails>",
 			xmlEscape(i.CACertificateIdentifier), xmlEscape(i.ServerCertificateValidTill))

@@ -22,8 +22,8 @@ type CWAlarm struct {
 	AlarmName               string                 `json:"AlarmName" cbor:"AlarmName"`
 	AlarmArn                string                 `json:"AlarmArn" cbor:"AlarmArn"`
 	AlarmDescription        string                 `json:"AlarmDescription,omitempty" cbor:"AlarmDescription,omitempty"`
-	Namespace               string                 `json:"Namespace" cbor:"Namespace"`
-	MetricName              string                 `json:"MetricName" cbor:"MetricName"`
+	Namespace               string                 `json:"Namespace,omitempty" cbor:"Namespace,omitempty"`
+	MetricName              string                 `json:"MetricName,omitempty" cbor:"MetricName,omitempty"`
 	Dimensions              []CWDimension          `json:"Dimensions,omitempty" cbor:"Dimensions,omitempty"`
 	Statistic               string                 `json:"Statistic,omitempty" cbor:"Statistic,omitempty"`
 	ExtendedStatistic       string                 `json:"ExtendedStatistic,omitempty" cbor:"ExtendedStatistic,omitempty"`
@@ -33,6 +33,8 @@ type CWAlarm struct {
 	ComparisonOperator      string                 `json:"ComparisonOperator" cbor:"ComparisonOperator"`
 	TreatMissingData        string                 `json:"TreatMissingData,omitempty" cbor:"TreatMissingData,omitempty"`
 	Unit                    string                 `json:"Unit,omitempty" cbor:"Unit,omitempty"`
+	Metrics                 []CWMetricDataQuery    `json:"Metrics,omitempty" cbor:"Metrics,omitempty"`
+	ThresholdMetricId       string                 `json:"ThresholdMetricId,omitempty" cbor:"ThresholdMetricId,omitempty"`
 	ActionsEnabled          bool                   `json:"ActionsEnabled" cbor:"ActionsEnabled"`
 	AlarmActions            []string               `json:"AlarmActions,omitempty" cbor:"AlarmActions,omitempty"`
 	OKActions               []string               `json:"OKActions,omitempty" cbor:"OKActions,omitempty"`
@@ -85,7 +87,6 @@ func cwAlarmArn(name string) string {
 	return fmt.Sprintf("arn:aws:cloudwatch:%s:%s:alarm:%s", awsRegion(), awsAccountID(), name)
 }
 
-// Anomaly-band operators are not modelled.
 func cwAlarmBreaches(v, threshold float64, op string) bool {
 	switch op {
 	case "GreaterThanThreshold":
@@ -108,6 +109,9 @@ func cwEvaluateAlarmState(a CWAlarm) (state, reason string) {
 }
 
 func cwEvaluateAlarmStateAt(a CWAlarm, at time.Time) (state, reason string) {
+	if len(a.Metrics) > 0 {
+		return cwEvaluateMetricsAlarmStateAt(a, at)
+	}
 	period := a.Period
 	if period <= 0 {
 		period = 60
@@ -253,6 +257,8 @@ func handleCWJSONPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		InsufficientDataActions []string               `json:"InsufficientDataActions"`
 		Tags                    []cwTagKV              `json:"Tags"`
 		ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration"`
+		Metrics                 []CWMetricDataQuery    `json:"Metrics"`
+		ThresholdMetricId       string                 `json:"ThresholdMetricId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
@@ -267,6 +273,10 @@ func handleCWJSONPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if code, msg, ok := cwValidateMetricAlarm(req.MetricName, req.Period, req.EvaluationPeriods); !ok {
+		AWSError(w, code, msg, http.StatusBadRequest)
+		return
+	}
+	if code, msg, ok := cwValidateAlarmMetrics(req.Metrics, req.ThresholdMetricId, req.ComparisonOperator, req.MetricName); !ok {
 		AWSError(w, code, msg, http.StatusBadRequest)
 		return
 	}
@@ -299,6 +309,8 @@ func handleCWJSONPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		InsufficientDataActions: req.InsufficientDataActions,
 		Tags:                    cwResolveAlarmTags(req.Tags, req.AlarmName),
 		ActionConfiguration:     req.ActionConfiguration,
+		Metrics:                 req.Metrics,
+		ThresholdMetricId:       req.ThresholdMetricId,
 	})
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -330,7 +342,7 @@ func handleCWJSONDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	if cwWantAlarmType(req.AlarmTypes, "CompositeAlarm") {
 		comps := make([]map[string]any, 0)
-		for _, ca := range cwListCompositeAlarms(req.AlarmNames) {
+		for _, ca := range cwListCompositeAlarms(req.AlarmNames, req.StateValue) {
 			comps = append(comps, cwJSONCompositeAlarm(ca, now))
 		}
 		resp["CompositeAlarms"] = comps
@@ -388,13 +400,14 @@ func handleCWJSONDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
-	for _, n := range req.AlarmNames {
-		if !cwAlarmExists(n) {
-			AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
-			return
-		}
+	if msg, ok := cwValidateDeleteAlarms(req.AlarmNames); !ok {
+		AWSError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
 	}
-	cwDeleteAlarms(req.AlarmNames)
+	if missing, ok := cwDeleteAlarms(req.AlarmNames); !ok {
+		AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", missing)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -422,15 +435,7 @@ func cwWriteCBOR(w http.ResponseWriter, v any) {
 // The Go SDK rejects a cbor response without `Smithy-Protocol: rpc-v2-cbor`
 // and reads the code from `__type` and the message from `message`.
 func cwWriteCBORError(w http.ResponseWriter, code, message string, status int) {
-	data, err := cwEncMode.Marshal(awsErrorBody("cloudwatch", code, message))
-	if err != nil {
-		AWSError(w, "InternalFailure", "Failed to encode error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/cbor")
-	w.Header().Set("Smithy-Protocol", "rpc-v2-cbor")
-	w.WriteHeader(status)
-	_, _ = w.Write(data)
+	awsCBORWriteError(w, "cloudwatch", code, message, status)
 }
 
 func cwWriteCBORErrorf(w http.ResponseWriter, code string, status int, format string, args ...any) {
@@ -463,6 +468,8 @@ func handleCWCBORPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		InsufficientDataActions []string               `cbor:"InsufficientDataActions"`
 		Tags                    []cwTagKV              `cbor:"Tags"`
 		ActionConfiguration     *cwActionConfiguration `cbor:"ActionConfiguration"`
+		Metrics                 []CWMetricDataQuery    `cbor:"Metrics"`
+		ThresholdMetricId       string                 `cbor:"ThresholdMetricId"`
 	}
 	if err := cbor.Unmarshal(raw, &req); err != nil {
 		cwWriteCBORError(w, "InvalidParameterValue", "Invalid CBOR request", http.StatusBadRequest)
@@ -473,6 +480,10 @@ func handleCWCBORPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if code, msg, ok := cwValidateMetricAlarm(req.MetricName, req.Period, req.EvaluationPeriods); !ok {
+		cwWriteCBORError(w, code, msg, http.StatusBadRequest)
+		return
+	}
+	if code, msg, ok := cwValidateAlarmMetrics(req.Metrics, req.ThresholdMetricId, req.ComparisonOperator, req.MetricName); !ok {
 		cwWriteCBORError(w, code, msg, http.StatusBadRequest)
 		return
 	}
@@ -505,6 +516,8 @@ func handleCWCBORPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		InsufficientDataActions: req.InsufficientDataActions,
 		Tags:                    cwResolveAlarmTags(req.Tags, req.AlarmName),
 		ActionConfiguration:     req.ActionConfiguration,
+		Metrics:                 req.Metrics,
+		ThresholdMetricId:       req.ThresholdMetricId,
 	})
 	cwWriteCBOR(w, map[string]any{})
 }
@@ -625,6 +638,8 @@ type cborMetricAlarm struct {
 	OKActions               []string               `cbor:"OKActions,omitempty"`
 	InsufficientDataActions []string               `cbor:"InsufficientDataActions,omitempty"`
 	ActionConfiguration     *cwActionConfiguration `cbor:"ActionConfiguration,omitempty"`
+	Metrics                 []CWMetricDataQuery    `cbor:"Metrics,omitempty"`
+	ThresholdMetricId       string                 `cbor:"ThresholdMetricId,omitempty"`
 	StateValue              string                 `cbor:"StateValue"`
 	StateReason             string                 `cbor:"StateReason,omitempty"`
 	StateUpdatedTimestamp   time.Time              `cbor:"StateUpdatedTimestamp"`
@@ -650,6 +665,8 @@ func cborMetricAlarmOf(a CWAlarm, state, reason string, now time.Time) cborMetri
 		OKActions:               a.OKActions,
 		InsufficientDataActions: a.InsufficientDataActions,
 		ActionConfiguration:     a.ActionConfiguration,
+		Metrics:                 a.Metrics,
+		ThresholdMetricId:       a.ThresholdMetricId,
 		StateValue:              state,
 		StateReason:             reason,
 		StateUpdatedTimestamp:   now,
@@ -686,7 +703,7 @@ func handleCWCBORDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	if cwWantAlarmType(req.AlarmTypes, "CompositeAlarm") {
 		comps := make([]cborCompositeAlarm, 0)
-		for _, ca := range cwListCompositeAlarms(req.AlarmNames) {
+		for _, ca := range cwListCompositeAlarms(req.AlarmNames, req.StateValue) {
 			comps = append(comps, cborCompositeAlarmOf(ca, now))
 		}
 		resp["CompositeAlarms"] = comps
@@ -718,7 +735,7 @@ func cwWantAlarmType(filter []string, t string) bool {
 	return false
 }
 
-func cwListCompositeAlarms(names []string) []CWCompositeAlarm {
+func cwListCompositeAlarms(names []string, stateValue string) []CWCompositeAlarm {
 	want := map[string]bool{}
 	for _, n := range names {
 		want[n] = true
@@ -726,6 +743,9 @@ func cwListCompositeAlarms(names []string) []CWCompositeAlarm {
 	out := make([]CWCompositeAlarm, 0)
 	for _, a := range cwCompositeAlarms.List() {
 		if len(want) > 0 && !want[a.AlarmName] {
+			continue
+		}
+		if stateValue != "" && cwStateOrInsufficient(a.StateValue) != stateValue {
 			continue
 		}
 		out = append(out, a)
@@ -785,13 +805,14 @@ func handleCWCBORDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "InvalidParameterValue", "Invalid CBOR request", http.StatusBadRequest)
 		return
 	}
-	for _, n := range req.AlarmNames {
-		if !cwAlarmExists(n) {
-			cwWriteCBORErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
-			return
-		}
+	if msg, ok := cwValidateDeleteAlarms(req.AlarmNames); !ok {
+		cwWriteCBORError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
 	}
-	cwDeleteAlarms(req.AlarmNames)
+	if missing, ok := cwDeleteAlarms(req.AlarmNames); !ok {
+		cwWriteCBORErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", missing)
+		return
+	}
 	cwWriteCBOR(w, map[string]any{})
 }
 
@@ -807,10 +828,20 @@ func cwAlarmExists(name string) bool {
 	return ok
 }
 
-// A deleted alarm's configuration change event carries its last configuration.
-func cwDeleteAlarms(names []string) {
+// cwDeleteAlarms deletes every named alarm that exists, as the API reference
+// requires when a request also names alarms that do not, and returns the first
+// missing name. A deleted alarm's configuration change event carries its last
+// configuration.
+func cwDeleteAlarms(names []string) (string, bool) {
 	now := time.Now().UTC()
+	missing := ""
 	for _, n := range names {
+		if !cwAlarmExists(n) {
+			if missing == "" {
+				missing = n
+			}
+			continue
+		}
 		if a, ok := cwAlarms.Get(n); ok {
 			cwAlarms.Delete(n)
 			state, _ := cwAlarmEffectiveState(a)
@@ -831,6 +862,7 @@ func cwDeleteAlarms(names []string) {
 				cwLogAlarmConfigurationDetail(la, now), nil)
 		}
 	}
+	return missing, missing == ""
 }
 
 func cwStateOrInsufficient(state string) string {
@@ -851,6 +883,7 @@ func cwStoreMetricAlarm(a CWAlarm) {
 		a.ManualState, a.ManualStateReason = existing.ManualState, existing.ManualStateReason
 	}
 	cwAlarms.Put(a.AlarmName, a)
+	cwEnsureAlarmAnomalyDetectors(a)
 	operation, previous := "create", map[string]any(nil)
 	if exists {
 		operation, previous = "update", cwMetricAlarmConfigurationDetail(existing, now)
@@ -917,6 +950,15 @@ func handleCWQueryPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		cwQueryError(w, code, msg)
 		return
 	}
+	metrics, invalidMetrics := cwQueryMetricDataQueries(r, "Metrics")
+	if invalidMetrics != "" {
+		cwQueryError(w, "InvalidParameterValue", invalidMetrics)
+		return
+	}
+	if code, msg, ok := cwValidateAlarmMetrics(metrics, r.FormValue("ThresholdMetricId"), r.FormValue("ComparisonOperator"), r.FormValue("MetricName")); !ok {
+		cwQueryError(w, code, msg)
+		return
+	}
 	var threshold float64
 	if ts := r.FormValue("Threshold"); ts != "" {
 		tv, err := strconv.ParseFloat(ts, 64)
@@ -961,6 +1003,8 @@ func handleCWQueryPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		InsufficientDataActions: cwQueryStringList(r, "InsufficientDataActions"),
 		Tags:                    cwResolveAlarmTags(tags, name),
 		ActionConfiguration:     actionConfiguration,
+		Metrics:                 metrics,
+		ThresholdMetricId:       r.FormValue("ThresholdMetricId"),
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<PutMetricAlarmResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></PutMetricAlarmResponse>`,
@@ -984,7 +1028,9 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 			if a.AlarmDescription != "" {
 				fmt.Fprintf(&members, "<AlarmDescription>%s</AlarmDescription>", xmlEscape(a.AlarmDescription))
 			}
-			fmt.Fprintf(&members, "<Namespace>%s</Namespace><MetricName>%s</MetricName>", xmlEscape(a.Namespace), xmlEscape(a.MetricName))
+			if a.Namespace != "" {
+				fmt.Fprintf(&members, "<Namespace>%s</Namespace><MetricName>%s</MetricName>", xmlEscape(a.Namespace), xmlEscape(a.MetricName))
+			}
 			members.WriteString("<Dimensions>")
 			for _, dim := range a.Dimensions {
 				fmt.Fprintf(&members, "<member><Name>%s</Name><Value>%s</Value></member>", xmlEscape(dim.Name), xmlEscape(dim.Value))
@@ -1011,6 +1057,10 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 			members.WriteString(cwQueryMemberList("OKActions", a.OKActions))
 			members.WriteString(cwQueryMemberList("InsufficientDataActions", a.InsufficientDataActions))
 			members.WriteString(cwActionConfigurationXML(a.ActionConfiguration))
+			members.WriteString(cwMetricDataQueriesXML("Metrics", a.Metrics))
+			if a.ThresholdMetricId != "" {
+				fmt.Fprintf(&members, "<ThresholdMetricId>%s</ThresholdMetricId>", xmlEscape(a.ThresholdMetricId))
+			}
 			fmt.Fprintf(&members, "<StateValue>%s</StateValue><StateReason>%s</StateReason><StateUpdatedTimestamp>%s</StateUpdatedTimestamp>",
 				state, xmlEscape(reason), now.Format(time.RFC3339))
 			members.WriteString("</member>")
@@ -1018,7 +1068,7 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	var composites strings.Builder
 	if cwWantAlarmType(alarmTypes, "CompositeAlarm") {
-		for _, ca := range cwListCompositeAlarms(names) {
+		for _, ca := range cwListCompositeAlarms(names, stateFilter) {
 			state := ca.StateValue
 			if state == "" {
 				state = "INSUFFICIENT_DATA"
@@ -1098,13 +1148,14 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 
 func handleCWQueryDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 	names := cwQueryStringList(r, "AlarmNames")
-	for _, n := range names {
-		if !cwAlarmExists(n) {
-			cwQueryError(w, "ResourceNotFound", fmt.Sprintf("Alarm %s does not exist", n))
-			return
-		}
+	if msg, ok := cwValidateDeleteAlarms(names); !ok {
+		cwQueryError(w, "ValidationError", msg)
+		return
 	}
-	cwDeleteAlarms(names)
+	if missing, ok := cwDeleteAlarms(names); !ok {
+		cwQueryError(w, "ResourceNotFound", fmt.Sprintf("Alarm %s does not exist", missing))
+		return
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteAlarmsResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></DeleteAlarmsResponse>`,
 		cwQueryXmlns, sim.NewUUID())

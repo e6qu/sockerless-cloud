@@ -246,6 +246,17 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// TagResourceRequest — a list of `Key`/`Value`.
 	"budgets": {jsonList: []iamJSONTagList{iamKeyValueTagList("ResourceTags")}, keyJSON: []string{"ResourceTagKeys"}},
 
+	// Service Quotas (awsJson1_1). service-quotas.smithy.json.gz carries
+	// TagResourceRequest$Tags, a list of `Key`/`Value`, and
+	// UntagResourceRequest$TagKeys.
+	"servicequotas": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
+
+	// Amazon RDS Performance Insights (awsJson1_1 beside rpc-v2-cbor).
+	// pi.smithy.json.gz carries CreatePerformanceAnalysisReportRequest$Tags and
+	// TagResourceRequest$Tags, lists of `Key`/`Value`, and
+	// UntagResourceRequest$TagKeys.
+	"pi": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}},
+
 	// Application Auto Scaling (awsJson1_1). application-auto-scaling.smithy.json.gz
 	// carries tags as a map: RegisterScalableTargetRequest$Tags,
 	// TagResourceRequest$Tags.

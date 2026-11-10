@@ -13,11 +13,11 @@ import (
 )
 
 // lambdaAccountConcurrency is the account's concurrency limit, the
-// ConcurrentExecutions GetAccountSettings reports: "By default, Lambda
-// provides your account with a total concurrency limit of 1,000 concurrent
-// executions across all functions in an AWS Region." (lambda-concurrency
-// .md.gz.)
-const lambdaAccountConcurrency = 1000
+// ConcurrentExecutions GetAccountSettings reports: the Concurrent executions
+// quota Service Quotas applies to the account.
+func lambdaAccountConcurrency() int { return sqQuotaLimit("lambda", lambdaConcurrencyQuotaCode) }
+
+const lambdaConcurrencyQuotaCode = "L-B99A9384"
 
 // lambdaMinimumUnreservedConcurrency is what reserved concurrency must leave
 // to the functions without it: "You can reserve up to the Unreserved account
@@ -56,7 +56,7 @@ func (r *lambdaEnvironmentRegistry) reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ctx, r.cancel = context.WithCancel(context.Background())
-	r.account = funcrt.NewLimit(nil, lambdaAccountConcurrency)
+	r.account = funcrt.NewLimit(nil, lambdaAccountConcurrency())
 	r.limits = map[string]*funcrt.Limit{}
 	r.pools = map[string]*lambdaVersionPool{}
 }
@@ -99,6 +99,13 @@ func (r *lambdaEnvironmentRegistry) limitLocked(function string) *funcrt.Limit {
 		r.limits[function] = limit
 	}
 	return limit
+}
+
+// resizeAccount sizes the account limit to the applied quota.
+func (r *lambdaEnvironmentRegistry) resizeAccount() {
+	if limit := r.accountLimit(); limit != nil {
+		limit.SetMax(lambdaAccountConcurrency())
+	}
 }
 
 func (r *lambdaEnvironmentRegistry) accountLimit() *funcrt.Limit {
@@ -153,7 +160,7 @@ func lambdaReservedTotal() int {
 // lambdaUnreservedConcurrency is what the account leaves to the functions
 // without reserved concurrency.
 func lambdaUnreservedConcurrency() int {
-	return lambdaAccountConcurrency - lambdaReservedTotal()
+	return lambdaAccountConcurrency() - lambdaReservedTotal()
 }
 
 // lambdaProvisionedTargets is the provisioned concurrency each version of a

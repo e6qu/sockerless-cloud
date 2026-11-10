@@ -79,7 +79,7 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 	require.NoError(t, err)
 	require.Len(t, groups.LogGroups, 1)
 	tail, err := logsAPI.StartLiveTail(testCtx, &cloudwatchlogs.StartLiveTailInput{
-		LogGroupIdentifiers: []string{aws.ToString(groups.LogGroups[0].Arn)},
+		LogGroupIdentifiers: []string{aws.ToString(groups.LogGroups[0].LogGroupArn)},
 	})
 	require.NoError(t, err)
 	tailStream := tail.GetStream()

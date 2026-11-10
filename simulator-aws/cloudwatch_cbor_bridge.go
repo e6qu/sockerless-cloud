@@ -98,37 +98,67 @@ func registerCloudWatchCBORBridge(srv *sim.Server, router *AWSRouter) {
 }
 
 func cwCBORBridge(op string, handler http.HandlerFunc) http.HandlerFunc {
-	shapes := cwCBOROperations[op]
+	return awsCBORBridge(awsCBORModel{model: "cloudwatch", target: "GraniteServiceVersion20100801", contentType: "application/x-amz-json-1.0",
+		operations: cwCBOROperations, shapes: cwCBORShapes}, op, handler)
+}
+
+// awsCBORModel is what a bridge needs of a model that declares rpc-v2-cbor
+// beside an awsJson protocol: its JSON coordinates and its shape table.
+type awsCBORModel struct {
+	model, target, contentType string
+	operations                 map[string]cwCBOROperation
+	shapes                     map[string]cwCBORShape
+}
+
+// awsCBORWriteError writes a model's error in rpc-v2-cbor.
+func awsCBORWriteError(w http.ResponseWriter, model, code, message string, status int) {
+	data, err := cwEncMode.Marshal(awsErrorBody(model, code, message))
+	if err != nil {
+		AWSError(w, "InternalFailure", "Failed to encode error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/cbor")
+	w.Header().Set("Smithy-Protocol", "rpc-v2-cbor")
+	w.WriteHeader(status)
+	_, _ = w.Write(data)
+}
+
+// awsCBORBridge serves op's rpc-v2-cbor surface from its awsJson handler.
+func awsCBORBridge(m awsCBORModel, op string, handler http.HandlerFunc) http.HandlerFunc {
+	shapes := m.operations[op]
+	fail := func(w http.ResponseWriter, code, message string, status int) {
+		awsCBORWriteError(w, m.model, code, message, status)
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
-			cwWriteCBORError(w, "InvalidParameterValue", "Invalid request body", http.StatusBadRequest)
+			fail(w, "InvalidParameterValue", "Invalid request body", http.StatusBadRequest)
 			return
 		}
 		input := map[string]any{}
 		if len(raw) > 0 {
 			var decoded any
 			if err := cwCBORDecMode.Unmarshal(raw, &decoded); err != nil {
-				cwWriteCBORError(w, "SerializationException", "The request body is not valid CBOR: "+err.Error(), http.StatusBadRequest)
+				fail(w, "SerializationException", "The request body is not valid CBOR: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			converted, ok := cwCBORToJSON(shapes.Input, decoded).(map[string]any)
+			converted, ok := cwCBORToJSON(m.shapes, shapes.Input, decoded).(map[string]any)
 			if !ok {
-				cwWriteCBORError(w, "SerializationException", "The request body is not a CBOR map", http.StatusBadRequest)
+				fail(w, "SerializationException", "The request body is not a CBOR map", http.StatusBadRequest)
 				return
 			}
 			input = converted
 		}
 		body, err := json.Marshal(input)
 		if err != nil {
-			cwWriteCBORError(w, "InternalFailure", err.Error(), http.StatusInternalServerError)
+			fail(w, "InternalFailure", err.Error(), http.StatusInternalServerError)
 			return
 		}
 		forwarded := r.Clone(r.Context())
 		forwarded.Body = io.NopCloser(bytes.NewReader(body))
 		forwarded.ContentLength = int64(len(body))
-		forwarded.Header.Set("Content-Type", "application/x-amz-json-1.0")
-		forwarded.Header.Set("X-Amz-Target", "GraniteServiceVersion20100801."+op)
+		forwarded.Header.Set("Content-Type", m.contentType)
+		forwarded.Header.Set("X-Amz-Target", m.target+"."+op)
 		recorder := httptest.NewRecorder()
 		handler(recorder, forwarded)
 
@@ -137,7 +167,7 @@ func cwCBORBridge(op string, handler http.HandlerFunc) http.HandlerFunc {
 		var answer any = map[string]any{}
 		if recorder.Body.Len() > 0 {
 			if err := decoder.Decode(&answer); err != nil {
-				cwWriteCBORError(w, "InternalFailure", fmt.Sprintf("%s answered a body that is not JSON: %v", op, err), http.StatusInternalServerError)
+				fail(w, "InternalFailure", fmt.Sprintf("%s answered a body that is not JSON: %v", op, err), http.StatusInternalServerError)
 				return
 			}
 		}
@@ -146,12 +176,12 @@ func cwCBORBridge(op string, handler http.HandlerFunc) http.HandlerFunc {
 			if code == "" {
 				code = "InternalFailure"
 			}
-			cwWriteCBORError(w, code, message, recorder.Code)
+			fail(w, code, message, recorder.Code)
 			return
 		}
-		converted, err := cwJSONToCBOR(shapes.Output, answer)
+		converted, err := cwJSONToCBOR(m.shapes, shapes.Output, answer)
 		if err != nil {
-			cwWriteCBORError(w, "InternalFailure", fmt.Sprintf("%s answered %v", op, err), http.StatusInternalServerError)
+			fail(w, "InternalFailure", fmt.Sprintf("%s answered %v", op, err), http.StatusInternalServerError)
 			return
 		}
 		cwWriteCBOR(w, converted)
@@ -159,8 +189,8 @@ func cwCBORBridge(op string, handler http.HandlerFunc) http.HandlerFunc {
 }
 
 // awsJson1_0 carries timestamps as epoch seconds and blobs as base64.
-func cwCBORToJSON(shapeName string, value any) any {
-	shape := cwCBORShapes[shapeName]
+func cwCBORToJSON(shapes map[string]cwCBORShape, shapeName string, value any) any {
+	shape := shapes[shapeName]
 	switch shape.Kind {
 	case cwCBORTimestamp:
 		if t, ok := value.(time.Time); ok {
@@ -174,7 +204,7 @@ func cwCBORToJSON(shapeName string, value any) any {
 		if fields, ok := value.(map[string]any); ok {
 			out := make(map[string]any, len(fields))
 			for key, field := range fields {
-				out[key] = cwCBORToJSON(shape.Members[key], field)
+				out[key] = cwCBORToJSON(shapes, shape.Members[key], field)
 			}
 			return out
 		}
@@ -182,7 +212,7 @@ func cwCBORToJSON(shapeName string, value any) any {
 		if entries, ok := value.(map[string]any); ok {
 			out := make(map[string]any, len(entries))
 			for key, entry := range entries {
-				out[key] = cwCBORToJSON(shape.Element, entry)
+				out[key] = cwCBORToJSON(shapes, shape.Element, entry)
 			}
 			return out
 		}
@@ -190,7 +220,7 @@ func cwCBORToJSON(shapeName string, value any) any {
 		if items, ok := value.([]any); ok {
 			out := make([]any, len(items))
 			for i, item := range items {
-				out[i] = cwCBORToJSON(shape.Element, item)
+				out[i] = cwCBORToJSON(shapes, shape.Element, item)
 			}
 			return out
 		}
@@ -199,8 +229,8 @@ func cwCBORToJSON(shapeName string, value any) any {
 }
 
 // A value the shape does not admit is an error, never passed on.
-func cwJSONToCBOR(shapeName string, value any) (any, error) {
-	shape := cwCBORShapes[shapeName]
+func cwJSONToCBOR(shapes map[string]cwCBORShape, shapeName string, value any) (any, error) {
+	shape := shapes[shapeName]
 	switch shape.Kind {
 	case cwCBORTimestamp:
 		number, ok := value.(json.Number)
@@ -242,7 +272,7 @@ func cwJSONToCBOR(shapeName string, value any) (any, error) {
 			if !known {
 				return nil, fmt.Errorf("%s has no member %s", shapeName, key)
 			}
-			converted, err := cwJSONToCBOR(member, field)
+			converted, err := cwJSONToCBOR(shapes, member, field)
 			if err != nil {
 				return nil, fmt.Errorf("%s.%s: %w", shapeName, key, err)
 			}
@@ -256,7 +286,7 @@ func cwJSONToCBOR(shapeName string, value any) (any, error) {
 		}
 		out := make(map[string]any, len(entries))
 		for key, entry := range entries {
-			converted, err := cwJSONToCBOR(shape.Element, entry)
+			converted, err := cwJSONToCBOR(shapes, shape.Element, entry)
 			if err != nil {
 				return nil, fmt.Errorf("%s[%s]: %w", shapeName, key, err)
 			}
@@ -270,7 +300,7 @@ func cwJSONToCBOR(shapeName string, value any) (any, error) {
 		}
 		out := make([]any, len(items))
 		for i, item := range items {
-			converted, err := cwJSONToCBOR(shape.Element, item)
+			converted, err := cwJSONToCBOR(shapes, shape.Element, item)
 			if err != nil {
 				return nil, fmt.Errorf("%s[%d]: %w", shapeName, i, err)
 			}

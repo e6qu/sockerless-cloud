@@ -53,6 +53,49 @@ func TestCWAlarmRuleEvaluatesTheUserGuideExamples(t *testing.T) {
 	}
 }
 
+// The refusals CloudWatch returned for these rules, captured against the
+// service (ministackorg/ministack#2260, aws/aws-cdk#13953).
+func TestCWAlarmRuleRefusesAsCloudWatchDoes(t *testing.T) {
+	const operand = "must be: '(', 'NOT', AT_LEAST, TRUE or FALSE, ALARM, OK, or INSUFFICIENT_DATA]"
+	cases := map[string]string{
+		`ALARM("abcdef-m-a") AND`:      "Error in AlarmRule [Unsupported token '<EOF>' at char 23, " + operand,
+		`ALARM("abcdef-m-a"`:           "Error in AlarmRule [Unsupported token '<EOF>' at char 18]",
+		`ALARM("abcdef-m-a") XOR TRUE`: "Error in AlarmRule [Unsupported token 'XOR' at char 20, must be: <EOF>, 'AND', 'OR']",
+		`BOGUS("abcdef-m-a")`:          "Error in AlarmRule [Unsupported token 'BOGUS' at char 0, " + operand,
+		"false":                        "Error in AlarmRule [Unsupported token 'false' at char 0, " + operand,
+		"ALARM(arn:aws:cloudwatch:us-east-1:123456789012:alarm:Queue Oldest Message)": "Error in AlarmRule [Unsupported token 'Oldest' at char 60, must be: ')']",
+	}
+	for rule, want := range cases {
+		_, err := cwParseAlarmRule(rule)
+		if err == nil {
+			t.Errorf("%q parsed, want %q", rule, want)
+			continue
+		}
+		if err.Error() != want {
+			t.Errorf("%q: got %q, want %q", rule, err.Error(), want)
+		}
+	}
+}
+
+// AND binds tighter than OR and NOT tighter than AND, as CloudWatch evaluates
+// TRUE OR TRUE AND FALSE to ALARM and NOT TRUE AND FALSE to OK.
+func TestCWAlarmRulePrecedence(t *testing.T) {
+	for rule, want := range map[string]bool{
+		"TRUE OR TRUE AND FALSE": true,
+		"NOT TRUE AND FALSE":     false,
+		"FALSE AND TRUE OR TRUE": true,
+		"NOT FALSE OR FALSE":     true,
+	} {
+		n, err := cwParseAlarmRule(rule)
+		if err != nil {
+			t.Fatalf("%s: %v", rule, err)
+		}
+		if got := n.eval(func(string) string { return "" }); got != want {
+			t.Errorf("%s evaluated to %v, want %v", rule, got, want)
+		}
+	}
+}
+
 func TestCWAlarmRuleRefusesMalformedRules(t *testing.T) {
 	for _, rule := range []string{
 		"",

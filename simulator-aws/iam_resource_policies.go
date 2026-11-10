@@ -6,6 +6,8 @@ import (
 
 // Several services attach a policy to a resource (an Amazon S3 bucket policy, an
 // AWS Lambda function policy, an Amazon SNS topic or Amazon SQS queue policy).
+// Amazon CloudWatch Logs keeps account-level resource policies instead, each
+// guarding whichever log groups and log streams its statements name.
 // Each service keeps its own storage and read-back shape and mirrors the policy
 // JSON here, keyed by resource ARN, so the enforcement gate finds it in one
 // place through iamResourcePolicyDocsForARN.
@@ -43,6 +45,9 @@ func iamDeleteResourcePolicy(arn string) {
 func iamResourcePolicyDocsForARN(arn string) []iamPolicyDoc {
 	if arn == "" || iamResourcePolicies == nil {
 		return nil
+	}
+	if _, ok := cwLogGroupOfARN(arn); ok {
+		return cwResourcePolicyDocs()
 	}
 	policy, ok := iamGetResourcePolicy(arn)
 	if !ok || policy == "" {

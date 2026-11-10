@@ -55,7 +55,7 @@ func seedLogAlarmLogGroup(t *testing.T, logs *cloudwatchlogs.Client, group strin
 	events := make([]cwlogtypes.InputLogEvent, 0, len(messages))
 	for i, m := range messages {
 		events = append(events, cwlogtypes.InputLogEvent{
-			Timestamp: aws.Int64(now - int64(i*1000)),
+			Timestamp: aws.Int64(now - int64((len(messages)-1-i)*1000)),
 			Message:   aws.String(m),
 		})
 	}

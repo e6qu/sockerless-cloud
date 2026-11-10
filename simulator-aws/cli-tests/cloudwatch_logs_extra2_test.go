@@ -9,7 +9,9 @@ import (
 
 func TestLogsAccountAndQueryPolicyCLI(t *testing.T) {
 	policyName := "cli-account-dp-policy"
-	doc := `{"Rules":[{"DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
+	doc := `{"Name":"account-dp","Version":"2021-06-01","Configuration":{"CustomDataIdentifier":[{"Name":"CliRoundTripToken","Regex":"CliRoundTrip-\\d{12}"}]},"Statement":[` +
+		`{"Sid":"audit","DataIdentifier":["CliRoundTripToken"],"Operation":{"Audit":{"FindingsDestination":{}}}},` +
+		`{"Sid":"redact","DataIdentifier":["CliRoundTripToken"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
 	defer runCLIIgnore(awsCLI("logs", "delete-account-policy",
 		"--policy-name", policyName, "--policy-type", "DATA_PROTECTION_POLICY"))
 
@@ -95,10 +97,11 @@ func TestLogsDestinationCLI(t *testing.T) {
 	name := "cli-destination"
 	defer runCLIIgnore(awsCLI("logs", "delete-destination", "--destination-name", name))
 
+	streamARN := createCLIActiveStream(t, "cli-destination-stream")
 	out := runCLI(t, awsCLI("logs", "put-destination",
 		"--destination-name", name,
-		"--target-arn", "arn:aws:kinesis:us-east-1:123456789012:stream/logs",
-		"--role-arn", "arn:aws:iam::123456789012:role/CWLtoKinesisRole",
+		"--target-arn", streamARN,
+		"--role-arn", createCLILogsDeliveryRole(t, "cli-destination-role", "kinesis:PutRecord", streamARN),
 		"--output", "json"))
 	var put struct {
 		Destination struct {
@@ -233,12 +236,12 @@ func TestLogsAnomalyAndIndexCLI(t *testing.T) {
 	var lg struct {
 		LogGroups []struct {
 			LogGroupName string `json:"logGroupName"`
-			Arn          string `json:"arn"`
+			LogGroupArn  string `json:"logGroupArn"`
 		} `json:"logGroups"`
 	}
 	parseJSON(t, lgOut, &lg)
 	require.NotEmpty(t, lg.LogGroups)
-	groupArn := lg.LogGroups[0].Arn
+	groupArn := lg.LogGroups[0].LogGroupArn
 
 	adOut := runCLI(t, awsCLI("logs", "create-log-anomaly-detector",
 		"--detector-name", "cli-detector",
@@ -292,7 +295,7 @@ func TestLogsAnomalyAndIndexCLI(t *testing.T) {
 	}
 	parseJSON(t, descIdx, &ip)
 	require.Len(t, ip.IndexPolicies, 1)
-	assert.Equal(t, group, ip.IndexPolicies[0].LogGroupIdentifier)
+	assert.Equal(t, "arn:aws:logs:us-east-1:123456789012:log-group:"+group, ip.IndexPolicies[0].LogGroupIdentifier)
 
 	runCLI(t, awsCLI("logs", "describe-field-indexes", "--log-group-identifiers", group))
 	runCLI(t, awsCLI("logs", "delete-index-policy", "--log-group-identifier", group))

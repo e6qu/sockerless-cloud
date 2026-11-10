@@ -2685,17 +2685,26 @@ func iamLogsResourceARNs(r *http.Request, types []string, arn func(svc, resource
 	if named := iamLogsNamedResourceARNs(r, types, arn); len(named) > 0 {
 		return named
 	}
+	// PutSubscriptionFilter names a cross-account destination by ARN beside
+	// the log group, and authorizes against both: the destination's access
+	// policy admits another account's caller.
+	var destinations []string
+	if iamHasType(types, "destination") {
+		if v := iamJSONBodyField(r, "destinationArn"); strings.Contains(v, ":destination:") {
+			destinations = append(destinations, v)
+		}
+	}
 	groups := iamNamesFrom(r,
 		[]string{"logGroupName", "logGroupIdentifier"},
 		[]string{"logGroupNames", "logGroupIdentifiers"})
 	if len(groups) == 0 {
-		return nil
+		return destinations
 	}
 	stream := ""
 	if iamHasType(types, "log-stream") {
 		stream = iamJSONBodyField(r, "logStreamName")
 	}
-	var out []string
+	out := destinations
 	for _, group := range groups {
 		// A logGroupIdentifier may be the group's ARN rather than its name.
 		base := arn("logs", "log-group:"+group)

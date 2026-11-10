@@ -125,52 +125,6 @@ func handleCWListSourcesForS3TableIntegration(w http.ResponseWriter, r *http.Req
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"sources": sources})
 }
 
-func handleCWGetLogFields(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		DataSourceName string `json:"dataSourceName"`
-		DataSourceType string `json:"dataSourceType"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.DataSourceName == "" || req.DataSourceType == "" {
-		AWSError(w, "InvalidParameterException", "dataSourceName and dataSourceType are required", http.StatusBadRequest)
-		return
-	}
-	// Discover the structural @-fields plus the top-level keys of the log group's
-	// JSON messages.
-	fieldTypes := map[string]string{}
-	if _, ok := cwLogGroups.Get(req.DataSourceName); ok {
-		fieldTypes["@timestamp"] = "timestamp"
-		fieldTypes["@message"] = "string"
-		fieldTypes["@ingestionTime"] = "timestamp"
-		fieldTypes["@logStream"] = "string"
-		for _, stream := range cwLogStreams.Filter(func(s CWLogStream) bool { return s.LogGroupName == req.DataSourceName }) {
-			events, ok := cwStreamEvents(cwEventsKey(req.DataSourceName, stream.LogStreamName))
-			if !ok {
-				continue
-			}
-			for _, e := range events {
-				var obj map[string]any
-				if json.Unmarshal([]byte(e.processedMessage()), &obj) == nil {
-					for k, v := range obj {
-						fieldTypes[k] = cwLogFieldDataType(v)
-					}
-				}
-			}
-		}
-	}
-	logFields := []map[string]any{}
-	for name, dt := range fieldTypes {
-		logFields = append(logFields, map[string]any{
-			"logFieldName": name,
-			"logFieldType": map[string]any{"type": dt},
-		})
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"logFields": logFields})
-}
-
 func cwLogFieldDataType(v any) string {
 	switch v.(type) {
 	case bool:

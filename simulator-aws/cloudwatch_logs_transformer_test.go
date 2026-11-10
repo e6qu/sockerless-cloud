@@ -354,8 +354,8 @@ func TestCWTransformerTypeConverter(t *testing.T) {
 	assert.Equal(t, `{"i":-12,"d":3.0,"b":true,"s":"42"}`, out)
 }
 
-// Configurations the model or the guide forbids answer InvalidParameterException;
-// parseToOCSF answers InvalidOperationException.
+// Configurations the model, the guide or DateTimeFormatter forbids answer
+// InvalidParameterException.
 func TestCWTransformerValidation(t *testing.T) {
 	many := strings.Repeat(`{"trimString":{"withKeys":["a"]}},`, 20)
 	cases := []struct{ name, config, code string }{
@@ -387,7 +387,11 @@ func TestCWTransformerValidation(t *testing.T) {
 		{"dateTimeConverter unknown letter", `[{"parseJSON":{}},{"dateTimeConverter":{"source":"a","target":"b","matchPatterns":["yyyy-bb"]}}]`, "InvalidParameterException"},
 		{"dateTimeConverter unknown zone", `[{"parseJSON":{}},{"dateTimeConverter":{"source":"a","target":"b","matchPatterns":["yyyy"],"sourceTimezone":"Mars/Olympus"}}]`, "InvalidParameterException"},
 		{"parseToOCSF mappingVersion with V1.1", `[{"parseToOCSF":{"eventSource":"VPCFlow","ocsfVersion":"V1.1","mappingVersion":"1.5.0"}}]`, "InvalidParameterException"},
-		{"parseToOCSF", `[{"parseToOCSF":{"eventSource":"VPCFlow","ocsfVersion":"V1.1"}}]`, "InvalidOperationException"},
+		{"parseToOCSF mapping version that does not exist", `[{"parseToOCSF":{"eventSource":"CloudTrail","ocsfVersion":"V1.5","mappingVersion":"1.4.0"}}]`, "InvalidParameterException"},
+		{"dateTimeConverter ] without [", `[{"parseJSON":{}},{"dateTimeConverter":{"source":"a","target":"b","matchPatterns":["yyyy]"]}}]`, "InvalidParameterException"},
+		{"dateTimeConverter five z", `[{"parseJSON":{}},{"dateTimeConverter":{"source":"a","target":"b","matchPatterns":["zzzzz"]}}]`, "InvalidParameterException"},
+		{"dateTimeConverter cc", `[{"parseJSON":{}},{"dateTimeConverter":{"source":"a","target":"b","matchPatterns":["cc"]}}]`, "InvalidParameterException"},
+		{"dateTimeConverter BB", `[{"parseJSON":{}},{"dateTimeConverter":{"source":"a","target":"b","matchPatterns":["BB"]}}]`, "InvalidParameterException"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -402,6 +406,8 @@ func TestCWTransformerValidation(t *testing.T) {
 		`[{"grok":{"match":"%{SYSLOG5424}%{DATA:logMsg}"}}]`,
 		`[{"grok":{"match":"%{APACHE_ACCESS_LOG} %{GREEDYDATA:logMsg}"}}]`,
 		`[{"csv":{"delimiter":"\\t"}}]`,
+		`[{"parseToOCSF":{"eventSource":"CloudTrail","ocsfVersion":"V1.5","mappingVersion":"1.5.0"}}]`,
+		`[{"parseToOCSF":{"eventSource":"VPCFlow","ocsfVersion":"V1.1"}}]`,
 	} {
 		_, err := cwtCompileJSON(t, valid)
 		assert.NoError(t, err, valid)

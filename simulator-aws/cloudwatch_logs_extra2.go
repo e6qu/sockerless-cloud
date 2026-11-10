@@ -10,17 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Keyed by policyType+":"+policyName; a name is unique per policy type.
-type CWAccountPolicy struct {
-	PolicyName        string `json:"policyName"`
-	PolicyDocument    string `json:"policyDocument"`
-	LastUpdatedTime   int64  `json:"lastUpdatedTime"`
-	PolicyType        string `json:"policyType"`
-	Scope             string `json:"scope,omitempty"`
-	SelectionCriteria string `json:"selectionCriteria,omitempty"`
-	AccountId         string `json:"accountId,omitempty"`
-}
-
 // Keyed by id.
 type CWQueryDefinition struct {
 	QueryLanguage     string   `json:"queryLanguage,omitempty"`
@@ -102,28 +91,35 @@ type CWLogAnomalyDetector struct {
 	// UpdateLogAnomalyDetector restores this status when it restarts a paused
 	// detector.
 	StatusBeforePause string `json:"statusBeforePause,omitempty"`
+	// LastEvaluated is when training ended or the last analysis ran, in epoch
+	// milliseconds; the next analysis reads the events ingested since.
+	LastEvaluated int64 `json:"lastEvaluated,omitempty"`
 }
 
 func (d CWLogAnomalyDetector) wire() map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"anomalyDetectorArn":    d.AnomalyDetectorArn,
-		"detectorName":          d.DetectorName,
 		"logGroupArnList":       d.LogGroupArnList,
 		"evaluationFrequency":   d.EvaluationFrequency,
-		"filterPattern":         d.FilterPattern,
 		"anomalyDetectorStatus": d.AnomalyDetectorStatus,
-		"kmsKeyId":              d.KmsKeyId,
 		"creationTimeStamp":     d.CreationTimeStamp,
 		"lastModifiedTimeStamp": d.LastModifiedTimeStamp,
 		"anomalyVisibilityTime": d.AnomalyVisibilityTime,
 	}
+	for key, value := range map[string]string{"detectorName": d.DetectorName, "filterPattern": d.FilterPattern, "kmsKeyId": d.KmsKeyId} {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	return out
 }
 
-// Keyed by logGroupIdentifier.
+// Keyed by log group name.
 type CWIndexPolicy struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 	LastUpdateTime     int64  `json:"lastUpdateTime"`
 	PolicyDocument     string `json:"policyDocument"`
+	PolicyName         string `json:"policyName,omitempty"`
 	Source             string `json:"source,omitempty"`
 }
 
@@ -149,6 +145,7 @@ func registerCloudWatchLogsExtra2(r *AWSRouter, srv *sim.Server) {
 	cwDeliveryDests = sim.MakeStore[CWDeliveryDestination](srv.DB(), "cw_delivery_destinations")
 	cwLogAnomalyDetectors = sim.MakeStore[CWLogAnomalyDetector](srv.DB(), "cw_log_anomaly_detectors")
 	cwIndexPolicies = sim.MakeStore[CWIndexPolicy](srv.DB(), "cw_index_policies")
+	registerCloudWatchLogsAnomalyDetection(srv)
 
 	r.Register("Logs_20140328.PutAccountPolicy", handleCWPutAccountPolicy)
 	r.Register("Logs_20140328.DescribeAccountPolicies", handleCWDescribeAccountPolicies)
@@ -197,83 +194,6 @@ func registerCloudWatchLogsExtra2(r *AWSRouter, srv *sim.Server) {
 
 	// The published, static template list.
 	r.Register("Logs_20140328.DescribeConfigurationTemplates", handleCWDescribeConfigurationTemplates)
-}
-
-func cwAccountPolicyKey(policyType, name string) string { return policyType + ":" + name }
-
-func handleCWPutAccountPolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PolicyName        string `json:"policyName"`
-		PolicyDocument    string `json:"policyDocument"`
-		PolicyType        string `json:"policyType"`
-		Scope             string `json:"scope"`
-		SelectionCriteria string `json:"selectionCriteria"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.PolicyName == "" || req.PolicyType == "" || req.PolicyDocument == "" {
-		AWSError(w, "InvalidParameterException", "policyName, policyType and policyDocument are required", http.StatusBadRequest)
-		return
-	}
-	p := CWAccountPolicy{
-		PolicyName:        req.PolicyName,
-		PolicyDocument:    req.PolicyDocument,
-		LastUpdatedTime:   time.Now().UnixMilli(),
-		PolicyType:        req.PolicyType,
-		Scope:             req.Scope,
-		SelectionCriteria: req.SelectionCriteria,
-		AccountId:         awsAccountID(),
-	}
-	cwAccountPolicies.Put(cwAccountPolicyKey(req.PolicyType, req.PolicyName), p)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"accountPolicy": p})
-}
-
-func handleCWDescribeAccountPolicies(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PolicyType         string   `json:"policyType"`
-		PolicyName         string   `json:"policyName"`
-		AccountIdentifiers []string `json:"accountIdentifiers"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.PolicyType == "" {
-		AWSError(w, "InvalidParameterException", "policyType is required", http.StatusBadRequest)
-		return
-	}
-	policies := cwAccountPolicies.Filter(func(p CWAccountPolicy) bool {
-		if p.PolicyType != req.PolicyType {
-			return false
-		}
-		if req.PolicyName != "" && p.PolicyName != req.PolicyName {
-			return false
-		}
-		return true
-	})
-	if policies == nil {
-		policies = []CWAccountPolicy{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"accountPolicies": policies})
-}
-
-func handleCWDeleteAccountPolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PolicyName string `json:"policyName"`
-		PolicyType string `json:"policyType"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if !cwAccountPolicies.Delete(cwAccountPolicyKey(req.PolicyType, req.PolicyName)) {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified account policy does not exist: %s", req.PolicyName)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 func handleCWPutQueryDefinition(w http.ResponseWriter, r *http.Request) {
@@ -409,6 +329,17 @@ func handleCWPutDestination(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "destinationName is required", http.StatusBadRequest)
 		return
 	}
+	target, refused := cwResolveSubscriptionTarget(req.TargetArn, req.RoleArn)
+	if refused == nil && (target.Kind == cwTargetLambda || target.Arn != req.TargetArn) {
+		refused = cwInvalidParameter("Invalid targetArn: %s", req.TargetArn)
+	}
+	if refused == nil {
+		refused = cwCheckSubscriptionTarget(r.Context(), cwDestinationArn(req.DestinationName), target)
+	}
+	if refused != nil {
+		cwWriteRefusal(w, refused)
+		return
+	}
 	creation := time.Now().UnixMilli()
 	access := ""
 	if existing, ok := cwDestinations.Get(req.DestinationName); ok {
@@ -461,6 +392,7 @@ func handleCWDeleteDestination(w http.ResponseWriter, r *http.Request) {
 			"The specified destination does not exist: %s", req.DestinationName)
 		return
 	}
+	iamDeleteResourcePolicy(cwDestinationArn(req.DestinationName))
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -473,11 +405,18 @@ func handleCWPutDestinationPolicy(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
+	if _, err := parseIAMPolicy(req.AccessPolicy); err != nil {
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "Invalid accessPolicy: %v", err)
+		return
+	}
 	if !cwDestinations.Update(req.DestinationName, func(d *CWDestination) { d.AccessPolicy = req.AccessPolicy }) {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified destination does not exist: %s", req.DestinationName)
 		return
 	}
+	// The gate reads the access policy as the destination's resource policy,
+	// which decides a PutSubscriptionFilter from another account.
+	iamPutResourcePolicy(cwDestinationArn(req.DestinationName), req.AccessPolicy)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -798,9 +737,39 @@ func handleCWCreateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if len(req.LogGroupArnList) == 0 {
-		AWSError(w, "InvalidParameterException", "logGroupArnList is required", http.StatusBadRequest)
+	if len(req.LogGroupArnList) != 1 {
+		AWSError(w, "InvalidParameterException", "logGroupArnList must contain exactly one log group ARN", http.StatusBadRequest)
 		return
+	}
+	if _, ok := cwLogGroupByArn(req.LogGroupArnList[0]); !ok {
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			"The specified log group does not exist: %s", req.LogGroupArnList[0])
+		return
+	}
+	if _, ok := cwLogEvaluationFrequencies[req.EvaluationFrequency]; req.EvaluationFrequency != "" && !ok {
+		AWSError(w, "InvalidParameterException", "evaluationFrequency must be one of ONE_MIN, FIVE_MIN, TEN_MIN, FIFTEEN_MIN, THIRTY_MIN or ONE_HOUR", http.StatusBadRequest)
+		return
+	}
+	if req.FilterPattern != "" {
+		if _, err := cwCompileLogPattern(req.FilterPattern); err != nil {
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "Invalid filterPattern: %v", err)
+			return
+		}
+	}
+	if req.AnomalyVisibilityTime == 0 {
+		req.AnomalyVisibilityTime = cwLogAnomalyDefaultDays
+	}
+	if req.AnomalyVisibilityTime < 7 || req.AnomalyVisibilityTime > 90 {
+		AWSError(w, "InvalidParameterException", "anomalyVisibilityTime must be between 7 and 90 days", http.StatusBadRequest)
+		return
+	}
+	for _, arn := range req.LogGroupArnList {
+		if name, ok := cwLogGroupByArn(arn); ok {
+			if group, _ := cwLogGroups.Get(name); !group.standard() {
+				AWSError(w, "InvalidParameterException", "CloudWatch Logs anomaly detection is supported only for log groups in the Standard log class.", http.StatusBadRequest)
+				return
+			}
+		}
 	}
 	now := time.Now().UnixMilli()
 	arn := cwAnomalyDetectorArn(uuid.New().String())
@@ -882,83 +851,8 @@ func handleCWDeleteLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 		return
 	}
+	cwDeleteLogAnomalyModel(req.AnomalyDetectorArn)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWPutIndexPolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifier string `json:"logGroupIdentifier"`
-		PolicyDocument     string `json:"policyDocument"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.LogGroupIdentifier == "" || req.PolicyDocument == "" {
-		AWSError(w, "InvalidParameterException", "logGroupIdentifier and policyDocument are required", http.StatusBadRequest)
-		return
-	}
-	p := CWIndexPolicy{
-		LogGroupIdentifier: req.LogGroupIdentifier,
-		LastUpdateTime:     time.Now().UnixMilli(),
-		PolicyDocument:     req.PolicyDocument,
-		Source:             "LOG_GROUP",
-	}
-	cwIndexPolicies.Put(req.LogGroupIdentifier, p)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"indexPolicy": p})
-}
-
-func handleCWDeleteIndexPolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifier string `json:"logGroupIdentifier"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if !cwIndexPolicies.Delete(req.LogGroupIdentifier) {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified index policy does not exist: %s", req.LogGroupIdentifier)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWDescribeIndexPolicies(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	wanted := map[string]bool{}
-	for _, id := range req.LogGroupIdentifiers {
-		wanted[id] = true
-	}
-	policies := cwIndexPolicies.Filter(func(p CWIndexPolicy) bool {
-		if len(wanted) == 0 {
-			return true
-		}
-		return wanted[p.LogGroupIdentifier]
-	})
-	if policies == nil {
-		policies = []CWIndexPolicy{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"indexPolicies": policies})
-}
-
-func handleCWDescribeFieldIndexes(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	// Field indexes appear once a policy is in effect and the group has ingested
-	// matching events; until then the list is empty.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"fieldIndexes": []any{}})
 }
 
 // The templates AWS publishes for Amazon Bedrock model-invocation logging and

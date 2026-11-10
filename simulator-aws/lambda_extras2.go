@@ -664,7 +664,7 @@ func handleLambdaGetAccountSettings(w http.ResponseWriter, _ *http.Request) {
 			"TotalCodeSize":                  int64(80530636800),
 			"CodeSizeUnzipped":               int64(lambdaUnzippedCodeLimit),
 			"CodeSizeZipped":                 int64(52428800),
-			"ConcurrentExecutions":           lambdaAccountConcurrency,
+			"ConcurrentExecutions":           lambdaAccountConcurrency(),
 			"UnreservedConcurrentExecutions": lambdaUnreservedConcurrency(),
 		},
 		"AccountUsage": map[string]any{

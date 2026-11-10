@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // scopedKeyCLI mints an IAM user carrying policyDocument and returns its access
@@ -62,7 +63,7 @@ func TestIAM_CloudWatchLogsResourceScopedCLI(t *testing.T) {
 		"--log-group-name", "/cli-scoped/app"), id, secret))
 	runCLI(t, asUser(awsCLI("logs", "put-log-events",
 		"--log-group-name", "/cli-scoped/app", "--log-stream-name", "s1",
-		"--log-events", `[{"timestamp":1770000000000,"message":"scoped"}]`), id, secret))
+		"--log-events", `[{"timestamp":`+itoa(time.Now().UnixMilli())+`,"message":"scoped"}]`), id, secret))
 
 	deny := runCLIExpectError(t, asUser(awsCLI("logs", "filter-log-events",
 		"--log-group-name", "/cli-other/app"), id, secret))
@@ -144,6 +145,7 @@ func TestCloudWatchLogsGetLogEventsReadsTheTailByDefaultCLI(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("logs", "delete-log-group", "--log-group-name", group).Run() })
 	runCLI(t, awsCLI("logs", "create-log-stream", "--log-group-name", group, "--log-stream-name", stream))
 
+	start := time.Now().Add(-time.Minute).UnixMilli()
 	var events strings.Builder
 	events.WriteByte('[')
 	for i := range 40 {
@@ -151,7 +153,7 @@ func TestCloudWatchLogsGetLogEventsReadsTheTailByDefaultCLI(t *testing.T) {
 			events.WriteByte(',')
 		}
 		events.WriteString(`{"timestamp":`)
-		events.WriteString(itoa(1770000000000 + int64(i)*1000))
+		events.WriteString(itoa(start + int64(i)*1000))
 		events.WriteString(`,"message":"line-`)
 		events.WriteString(itoa(int64(i)))
 		events.WriteString(`"}`)

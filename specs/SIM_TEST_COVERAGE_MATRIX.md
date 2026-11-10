@@ -19,6 +19,8 @@ Legend:
 | `aws-application-autoscaling` | direct | direct | direct | `simulator-aws/sdk-tests/application_autoscaling_test.go`; `simulator-aws/cli-tests/application_autoscaling_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-autoscaling` | direct | direct | direct | `simulator-aws/sdk-tests/autoscaling_cloudtrail_test.go`; `simulator-aws/cli-tests/autoscaling_cloudtrail_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-budgets` | direct | direct | direct | `simulator-aws/sdk-tests/budgets_test.go`; `simulator-aws/cli-tests/budgets_test.go`; `simulator-aws/terraform-tests/main.tf` |
+| `aws-pi` | direct | direct | not applicable | `simulator-aws/sdk-tests/rds_performance_insights_test.go`; `simulator-aws/cli-tests/rds_performance_insights_test.go`; the provider has no Performance Insights resource, and `simulator-aws/terraform-tests/rds-performance-insights/main.tf` drives the `aws_db_instance` arguments that turn it on |
+| `aws-servicequotas` | direct | direct | direct | `simulator-aws/sdk-tests/servicequotas_test.go`; `simulator-aws/cli-tests/servicequotas_test.go`; `simulator-aws/terraform-tests/servicequotas/main.tf` |
 | `aws-cloudmap` | direct | direct | direct | `simulator-aws/sdk-tests/cloudmap_test.go`; `simulator-aws/cli-tests/cloudmap_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-cloudtrail` | direct | direct | direct | `simulator-aws/sdk-tests/autoscaling_cloudtrail_test.go`; `simulator-aws/cli-tests/autoscaling_cloudtrail_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-cloudwatch` | direct | direct | direct | `simulator-aws/sdk-tests/cloudwatch_test.go`; `simulator-aws/cli-tests/cloudwatch_test.go`; `simulator-aws/terraform-tests/main.tf` |

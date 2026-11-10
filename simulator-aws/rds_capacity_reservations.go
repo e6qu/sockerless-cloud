@@ -396,7 +396,7 @@ func handleRDSCreateCapacityReservation(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if rdsDBInstancesUsed(awsRegion(), now)+capacity*len(zones) > rdsDBInstancesQuota {
+	if rdsDBInstancesUsed(awsRegion(), now)+capacity*len(zones) > rdsDBInstancesQuota(awsRegion()) {
 		fail("InstanceQuotaExceeded", rdsInstanceQuotaExceededMessage)
 		return
 	}
@@ -644,7 +644,7 @@ func handleRDSModifyCapacityReservation(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if increase := capacity - res.CapacityPerZone; increase > 0 &&
-			rdsDBInstancesUsed(awsRegion(), now)+increase*len(res.AvailabilityZones) > rdsDBInstancesQuota {
+			rdsDBInstancesUsed(awsRegion(), now)+increase*len(res.AvailabilityZones) > rdsDBInstancesQuota(awsRegion()) {
 			fail("InstanceQuotaExceeded", rdsInstanceQuotaExceededMessage)
 			return
 		}
@@ -781,8 +781,9 @@ func rdsHoldCapacity(id string, hold rdsCapacityHold) func() {
 	}
 }
 
-// rdsDBInstancesQuota is the DBInstances quota of an account in a Region.
-const rdsDBInstancesQuota = 40
+// rdsDBInstancesQuota is the DB instances quota Service Quotas applies to the
+// account in region.
+func rdsDBInstancesQuota(region string) int { return sqRegionQuotaLimit(region, "rds", "L-7B6409FD") }
 
 // rdsInstanceQuotaClaims maps each DB instance a request is provisioning, and
 // the store does not hold yet, to its Region. Hold rdsCapacity.
@@ -824,7 +825,7 @@ const rdsInstanceQuotaExceededMessage = "The request would result in the user ex
 func rdsClaimInstanceQuota(region, id string) (release func(), code, message string) {
 	rdsCapacity.Lock()
 	defer rdsCapacity.Unlock()
-	if rdsDBInstancesUsed(region, time.Now().UTC())+1 > rdsDBInstancesQuota {
+	if rdsDBInstancesUsed(region, time.Now().UTC())+1 > rdsDBInstancesQuota(region) {
 		return nil, "InstanceQuotaExceeded", rdsInstanceQuotaExceededMessage
 	}
 	rdsInstanceQuotaClaims[id] = region

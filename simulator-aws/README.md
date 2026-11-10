@@ -257,6 +257,8 @@ every slice.
 | Management | AWS Systems Manager | AWS JSON 1.1 | [ssm](../specs/SIM_SURFACE_TABLES/aws-ssm_parameters.md) |
 | Management | AWS Organizations | AWS JSON 1.1 | [organizations](../specs/SIM_SURFACE_TABLES/aws-organizations.md) |
 | Management | AWS Budgets | AWS JSON 1.1 | [budgets](../specs/SIM_SURFACE_TABLES/aws-budgets.md) |
+| Management | Service Quotas, with the AWS/Usage metrics CloudWatch publishes | AWS JSON 1.1 | [servicequotas](../specs/SIM_SURFACE_TABLES/aws-servicequotas.md) |
+| Management | Amazon RDS Performance Insights, sampling the DB instances' real engines | Smithy RPC v2 CBOR, AWS JSON 1.1 | [pi](../specs/SIM_SURFACE_TABLES/aws-pi.md) |
 | Developer tools | AWS CodeBuild | AWS JSON 1.1 | [codebuild](../specs/SIM_SURFACE_TABLES/aws-codebuild.md) |
 | Developer tools | AWS Amplify, with its hosting data plane | REST-JSON | [amplify](../specs/SIM_SURFACE_TABLES/aws-amplify.md) |
 | Analytics | AWS Glue | AWS JSON 1.1 | [glue](../specs/SIM_SURFACE_TABLES/aws-glue.md) |

@@ -84,41 +84,34 @@ func registerCloudWatchMetrics(srv *sim.Server, startBackgroundEvaluator bool) {
 
 	if startBackgroundEvaluator {
 		startCWAlarmEvaluator(srv)
+		startCWAnomalyTrainer(srv)
 	}
 }
 
 type getMetricDataRequest struct {
-	StartTime         time.Time         `cbor:"StartTime"`
-	EndTime           time.Time         `cbor:"EndTime"`
-	MetricDataQueries []metricDataQuery `cbor:"MetricDataQueries"`
-}
-
-type metricDataQuery struct {
-	Id         string      `cbor:"Id"`
-	MetricStat *metricStat `cbor:"MetricStat,omitempty"`
-}
-
-type metricStat struct {
-	Metric *metricRef `cbor:"Metric"`
-	Period int32      `cbor:"Period"`
-	Stat   string     `cbor:"Stat"`
-}
-
-type metricRef struct {
-	Namespace  string        `cbor:"Namespace"`
-	MetricName string        `cbor:"MetricName"`
-	Dimensions []CWDimension `cbor:"Dimensions,omitempty"`
-}
-
-type getMetricDataResponse struct {
-	MetricDataResults []metricDataResult `cbor:"MetricDataResults"`
+	StartTime         time.Time           `cbor:"StartTime"`
+	EndTime           time.Time           `cbor:"EndTime"`
+	ScanBy            string              `cbor:"ScanBy"`
+	MetricDataQueries []CWMetricDataQuery `cbor:"MetricDataQueries"`
+	MaxDatapoints     int                 `cbor:"MaxDatapoints"`
+	NextToken         string              `cbor:"NextToken"`
+	LabelOptions      struct {
+		Timezone string `cbor:"Timezone"`
+	} `cbor:"LabelOptions"`
 }
 
 type metricDataResult struct {
-	Id         string      `cbor:"Id"`
-	StatusCode string      `cbor:"StatusCode"`
-	Values     []float64   `cbor:"Values"`
-	Timestamps []time.Time `cbor:"Timestamps"`
+	Id         string              `cbor:"Id"`
+	Label      string              `cbor:"Label,omitempty"`
+	StatusCode string              `cbor:"StatusCode"`
+	Messages   []cborMetricMessage `cbor:"Messages,omitempty"`
+	Values     []float64           `cbor:"Values"`
+	Timestamps []time.Time         `cbor:"Timestamps"`
+}
+
+type cborMetricMessage struct {
+	Code  string `cbor:"Code"`
+	Value string `cbor:"Value"`
 }
 
 func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
@@ -132,28 +125,27 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "InvalidParameterValue", "Invalid CBOR request", http.StatusBadRequest)
 		return
 	}
-
-	var results []metricDataResult
-
-	for _, q := range req.MetricDataQueries {
-		result := metricDataResult{
-			Id:         q.Id,
-			StatusCode: "Complete",
-		}
-		if q.MetricStat != nil && q.MetricStat.Metric != nil {
-			m := q.MetricStat.Metric
-			// Serve only the datapoints PutMetricData recorded, for every namespace; the
-			// simulator measures no live container utilization.
-			if data, ok := cwMetrics.Get(metricsKey(m.Namespace, m.MetricName, m.Dimensions)); ok {
-				result.Values, result.Timestamps = cwAggregate(data,
-					float64(req.StartTime.Unix()), float64(req.EndTime.Unix()), q.MetricStat.Period, q.MetricStat.Stat)
-			}
-		}
-		results = append(results, result)
+	page, failure := cwGetMetricData(sim.LifetimeContext(r.Context()), cwGetMetricDataInput{
+		Queries: req.MetricDataQueries, Start: req.StartTime, End: req.EndTime, ScanBy: req.ScanBy,
+		MaxDatapoints: req.MaxDatapoints, NextToken: req.NextToken, Timezone: req.LabelOptions.Timezone,
+	})
+	if failure != nil {
+		cwWriteCBORError(w, failure.code, failure.message, http.StatusBadRequest)
+		return
 	}
-
-	resp := getMetricDataResponse{MetricDataResults: results}
-	data, err := cwEncMode.Marshal(resp)
+	results := make([]metricDataResult, 0, len(page.Results))
+	for _, o := range page.Results {
+		res := metricDataResult{Id: o.Id, Label: o.Label, StatusCode: o.StatusCode, Values: o.Values, Timestamps: o.Timestamps}
+		for _, m := range o.Messages {
+			res.Messages = append(res.Messages, cborMetricMessage(m))
+		}
+		results = append(results, res)
+	}
+	answer := map[string]any{"MetricDataResults": results}
+	if page.NextToken != "" {
+		answer["NextToken"] = page.NextToken
+	}
+	data, err := cwEncMode.Marshal(answer)
 	if err != nil {
 		cwWriteCBORError(w, "InternalFailure", "Failed to encode response", http.StatusInternalServerError)
 		return
@@ -163,33 +155,6 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Smithy-Protocol", "rpc-v2-cbor")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
-}
-
-// Buckets cover [startSec, endSec), newest first, as CloudWatch's default
-// TimestampDescending.
-func cwAggregate(data []CWMetricDatum, startSec, endSec float64, period int32, stat string) (values []float64, timestamps []time.Time) {
-	if period <= 0 {
-		period = 60
-	}
-	p := int64(period)
-	buckets := map[int64][]float64{}
-	for _, d := range data {
-		if d.Timestamp < startSec || d.Timestamp >= endSec {
-			continue
-		}
-		b := (int64(d.Timestamp) / p) * p
-		buckets[b] = append(buckets[b], d.Value)
-	}
-	keys := make([]int64, 0, len(buckets))
-	for k := range buckets {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] > keys[j] })
-	for _, k := range keys {
-		values = append(values, cwApplyStat(stat, buckets[k]))
-		timestamps = append(timestamps, time.Unix(k, 0).UTC())
-	}
-	return values, timestamps
 }
 
 func cwApplyStat(stat string, vals []float64) float64 {
@@ -278,9 +243,13 @@ func handleCWPutMetricData(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+// metricsKey identifies a metric by its namespace, name and dimension set; the
+// set is unordered, as CloudWatch treats it.
 func metricsKey(namespace, metricName string, dims []CWDimension) string {
 	key := namespace + "/" + metricName
-	for _, d := range dims {
+	sorted := append([]CWDimension(nil), dims...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	for _, d := range sorted {
 		key += fmt.Sprintf("/%s=%s", d.Name, d.Value)
 	}
 	return key

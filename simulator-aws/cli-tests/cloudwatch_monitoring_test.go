@@ -151,14 +151,18 @@ func TestCloudWatchCLI_DescribeAlarmsForMetric(t *testing.T) {
 func TestCloudWatchCLI_CompositeAlarm(t *testing.T) {
 	t.Parallel()
 	name := "cli-composite"
+	for _, child := range []string{"cli-composite-a", "cli-composite-b"} {
+		putCLIQuietMetricAlarm(t, child)
+		t.Cleanup(func() { runCLIIgnoreErr(awsCLI("cloudwatch", "delete-alarms", "--alarm-names", child)) })
+	}
 	runCLI(t, awsCLI("cloudwatch", "put-composite-alarm",
-		"--alarm-name", name, "--alarm-rule", "ALARM(a) OR ALARM(b)"))
+		"--alarm-name", name, "--alarm-rule", "ALARM(cli-composite-a) OR ALARM(cli-composite-b)"))
 	defer func() { _ = awsCLI("cloudwatch", "delete-alarms", "--alarm-names", name).Run() }()
 
 	got := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarms",
 		"--alarm-names", name, "--alarm-types", "CompositeAlarm",
 		"--query", "CompositeAlarms[0].AlarmRule", "--output", "text")))
-	if got != "ALARM(a) OR ALARM(b)" {
+	if got != "ALARM(cli-composite-a) OR ALARM(cli-composite-b)" {
 		t.Fatalf("composite AlarmRule = %q", got)
 	}
 }
@@ -224,7 +228,7 @@ func TestCloudWatchCLI_AnomalyDetector(t *testing.T) {
 func TestCloudWatchCLI_InsightRules(t *testing.T) {
 	t.Parallel()
 	name := "cli-insight"
-	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.id"]},"AggregateOn":"Count"}`
+	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"LogFormat":"JSON","Contribution":{"Keys":["$.id"]},"AggregateOn":"Count"}`
 	runCLI(t, awsCLI("cloudwatch", "put-insight-rule", "--rule-name", name, "--rule-definition", def))
 	defer func() { _ = awsCLI("cloudwatch", "delete-insight-rules", "--rule-names", name).Run() }()
 

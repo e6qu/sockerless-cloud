@@ -47,7 +47,10 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
 - **Specifications.** `specs/cloud-api/{aws,gcp,azure}` vendors the Smithy
   models, Discovery documents, Swagger documents, the AWS Service Reference
   and dated documentation pages, each row of a `SOURCES.md` pinned and
-  traceable; `specs/SIM_SURFACE_TABLES/` holds the per-operation tables.
+  traceable, beside what a service follows from outside its cloud: the OCSF
+  schemas and Amazon Security Lake mappings CloudWatch Logs' `parseToOCSF`
+  writes, and the CLDR 39 data and JDK 17 sources its `dateTimeConverter`
+  formats with; `specs/SIM_SURFACE_TABLES/` holds the per-operation tables.
 - **No built artifacts in git.** The console `dist/` directories are
   ignored; the network sidecar, the node agent and Amazon RDS's
   `AWSAuthenticationPlugin` are built on the container engine from embedded
@@ -98,9 +101,12 @@ Shared mechanisms, one package each:
   per-protocol retry policy and the subscription's dead-letter queue; Azure
   Event Grid subscriptions; Pub/Sub topic fan-out and Eventarc Cloud Audit
   Logs triggers, both into queues that own their retries.
-- **`cron` and `delivery`**: Cloud Scheduler, EventBridge Scheduler and
-  Container Apps scheduled jobs; Cloud Tasks HTTP tasks go out through
-  `delivery.Post`, keeping their attempts in the queue.
+- **`cron` and `delivery`**: Cloud Scheduler, EventBridge Scheduler,
+  CloudWatch Logs scheduled queries and Container Apps scheduled jobs; Cloud Tasks HTTP tasks go out through
+  `delivery.Post`, keeping their attempts in the queue; CloudWatch Logs
+  subscription filters and the account-level subscription filter policy
+  forward matching events to Amazon Kinesis Data Streams, Amazon Data
+  Firehose, AWS Lambda and destinations through it.
 - **`lbplane`**: `HostRouter` fronts Cloud Run services and instances, Cloud
   Run functions, Container Apps ingress, App Service sites and slots, and
   AWS Lambda function URLs. Those and Amplify Hosting compute, Elastic Load
@@ -140,6 +146,27 @@ Shared mechanisms, one package each:
   to the callers its model names, removed accounts run standalone, and
   invitations and the migration to all features run through handshakes
   their parties answer.
+  Amazon CloudWatch evaluates every metric math function, `SERVICE_QUOTA`
+  and `DB_PERF_INSIGHTS` included, Metrics Insights queries without resource
+  tags, single-metric and metric math anomaly detectors, and the metric
+  widget's views and annotations; `GetMetricData` pages by `MaxDatapoints`
+  and expands dynamic labels. CloudWatch publishes `AWS/Usage` metrics:
+  `CallCount` for the services the "AWS API usage metrics" table lists, and
+  `ResourceCount` for Amazon EC2 and AWS Fargate vCPUs, Amazon ECR
+  repositories and images, and Amazon Data Firehose streams. Service Quotas
+  serves the quotas the vendored General Reference pages publish with a code;
+  an increase request is approved and applied, and AWS Lambda's concurrency,
+  Amazon RDS's DB instances and Amazon VPC's security group checks read the
+  applied value. Amazon RDS Performance Insights samples each enabled DB
+  instance's real engine every second and its counters every minute.
+  Ingestion paths hold their documented payload limits: Amazon CloudWatch
+  Logs `PutLogEvents` batches, Amazon Kinesis Data Streams records, Amazon
+  Data Firehose records and batches, and AWS Lambda invocation requests and
+  responses. CloudWatch Logs data protection, field index and metric
+  extraction policies take effect at ingestion; ingested events carry the
+  data source their log group's tags name, and an AWS service writing to a
+  log group as its own principal is held to the CloudWatch Logs resource
+  policies.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three

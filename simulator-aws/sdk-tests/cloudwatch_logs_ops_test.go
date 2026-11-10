@@ -68,46 +68,6 @@ func TestLogs_MetricFilterRoundTrip(t *testing.T) {
 	assert.Empty(t, desc2.MetricFilters)
 }
 
-func TestLogs_SubscriptionFilterRoundTrip(t *testing.T) {
-	t.Parallel()
-	cw := cwLogsClient()
-	group := "/test/sub-filter"
-	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
-	require.NoError(t, err)
-	defer cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(group)})
-
-	destArn := "arn:aws:lambda:us-east-1:123456789012:function:log-sink"
-	_, err = cw.PutSubscriptionFilter(ctx, &cloudwatchlogs.PutSubscriptionFilterInput{
-		LogGroupName:   aws.String(group),
-		FilterName:     aws.String("to-lambda"),
-		FilterPattern:  aws.String(""),
-		DestinationArn: aws.String(destArn),
-		Distribution:   cwlogtypes.DistributionByLogStream,
-	})
-	require.NoError(t, err)
-
-	desc, err := cw.DescribeSubscriptionFilters(ctx, &cloudwatchlogs.DescribeSubscriptionFiltersInput{
-		LogGroupName: aws.String(group),
-	})
-	require.NoError(t, err)
-	require.Len(t, desc.SubscriptionFilters, 1)
-	assert.Equal(t, "to-lambda", aws.ToString(desc.SubscriptionFilters[0].FilterName))
-	assert.Equal(t, destArn, aws.ToString(desc.SubscriptionFilters[0].DestinationArn))
-	assert.Equal(t, cwlogtypes.DistributionByLogStream, desc.SubscriptionFilters[0].Distribution)
-
-	_, err = cw.DeleteSubscriptionFilter(ctx, &cloudwatchlogs.DeleteSubscriptionFilterInput{
-		LogGroupName: aws.String(group),
-		FilterName:   aws.String("to-lambda"),
-	})
-	require.NoError(t, err)
-
-	desc2, err := cw.DescribeSubscriptionFilters(ctx, &cloudwatchlogs.DescribeSubscriptionFiltersInput{
-		LogGroupName: aws.String(group),
-	})
-	require.NoError(t, err)
-	assert.Empty(t, desc2.SubscriptionFilters)
-}
-
 // TestLogs_RetentionAndTags covers the retention policy, the name-keyed
 // TagLogGroup family and the ARN-keyed TagResource family.
 func TestLogs_RetentionAndTags(t *testing.T) {
@@ -166,7 +126,7 @@ func TestLogs_RetentionAndTags(t *testing.T) {
 	assert.False(t, hasTeam)
 	assert.Equal(t, "test", lt2.Tags["env"])
 
-	arn := aws.ToString(g.LogGroups[0].Arn)
+	arn := aws.ToString(g.LogGroups[0].LogGroupArn)
 	_, err = cw.UntagResource(ctx, &cloudwatchlogs.UntagResourceInput{
 		ResourceArn: aws.String(arn),
 		TagKeys:     []string{"env"},
@@ -254,7 +214,9 @@ func TestLogs_DataProtectionPolicy(t *testing.T) {
 	require.NoError(t, err)
 	defer cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(group)})
 
-	doc := `{"Name":"policy","Version":"2021-06-01","Statement":[{"Sid":"audit","DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Audit":{"FindingsDestination":{}}}}]}`
+	doc := `{"Name":"policy","Version":"2021-06-01","Statement":[` +
+		`{"Sid":"audit","DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Audit":{"FindingsDestination":{}}}},` +
+		`{"Sid":"redact","DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
 	put, err := cw.PutDataProtectionPolicy(ctx, &cloudwatchlogs.PutDataProtectionPolicyInput{
 		LogGroupIdentifier: aws.String(group),
 		PolicyDocument:     aws.String(doc),

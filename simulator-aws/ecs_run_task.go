@@ -438,7 +438,7 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 	if len(pendingRestores) > 0 {
 		if err := ecsRunPendingEBSRestores(ctx, id, pendingRestores); err != nil {
 			if ctx.Err() != nil {
-				ecsLogInterruptedStart(id)
+				ecsLogInterruptedStart(id, err, phases)
 				return
 			}
 			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: managed EBS volume preparation failed: %v\n", id, err)
@@ -475,7 +475,7 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 		processes, err = startECSTaskContainers(ctx, id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, containerInstanceKey, phases)
 	}
 	if errors.Is(err, errECSTaskStartInterrupted) {
-		ecsLogInterruptedStart(id)
+		ecsLogInterruptedStart(id, err, phases)
 		return
 	}
 	if errors.Is(err, errECSTaskStartPreempted) {
@@ -675,8 +675,8 @@ func ecsHandOffTaskLifecycle(work func(context.Context), after func()) {
 // Not a task failure: the task stays PENDING for the next process.
 var errECSTaskStartInterrupted = errors.New("task start interrupted by simulator shutdown")
 
-func ecsLogInterruptedStart(taskID string) {
-	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: start interrupted by shutdown; the task stays PENDING for the next process to resume\n", taskID)
+func ecsLogInterruptedStart(taskID string, cause error, phases *ecsPhaseTimer) {
+	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: start interrupted by shutdown after %s: %v; the task stays PENDING for the next process to resume\n", taskID, phases.Summary(), cause)
 }
 
 func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTaskProcesses) {
