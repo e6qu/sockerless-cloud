@@ -47,7 +47,10 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
 - **Specifications.** `specs/cloud-api/{aws,gcp,azure}` vendors the Smithy
   models, Discovery documents, Swagger documents, the AWS Service Reference
   and dated documentation pages, each row of a `SOURCES.md` pinned and
-  traceable; `specs/SIM_SURFACE_TABLES/` holds the per-operation tables.
+  traceable, beside what a service follows from outside its cloud: the OCSF
+  schemas and Amazon Security Lake mappings CloudWatch Logs' `parseToOCSF`
+  writes, and the CLDR 39 data and JDK 17 sources its `dateTimeConverter`
+  formats with; `specs/SIM_SURFACE_TABLES/` holds the per-operation tables.
 - **No built artifacts in git.** The console `dist/` directories are
   ignored; the network sidecar, the node agent and Amazon RDS's
   `AWSAuthenticationPlugin` are built on the container engine from embedded

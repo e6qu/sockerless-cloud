@@ -1141,31 +1141,6 @@ func cwtJavaDouble(f float64) string {
 
 var cwtMappingVersionRE = regexp.MustCompile(`^\d+\.\d+(\.\d+)?$`)
 
-func cwtCompileParseToOCSF(c *cwtParseToOCSF) (cwtStep, error) {
-	switch c.EventSource {
-	case "CloudTrail", "Route53Resolver", "VPCFlow", "EKSAudit", "AWSWAF":
-	default:
-		return nil, cwtInvalid("parseToOCSF.eventSource must be one of CloudTrail, Route53Resolver, VPCFlow, EKSAudit, AWSWAF")
-	}
-	switch c.OcsfVersion {
-	case "V1.1", "V1.5":
-	default:
-		return nil, cwtInvalid("parseToOCSF.ocsfVersion must be V1.1 or V1.5")
-	}
-	if c.MappingVersion != nil {
-		if !cwtMappingVersionRE.MatchString(*c.MappingVersion) || len(*c.MappingVersion) > 10 {
-			return nil, cwtInvalid("parseToOCSF.mappingVersion must match ^\\d+\\.\\d+(\\.\\d+)?$")
-		}
-		if c.OcsfVersion == "V1.1" {
-			return nil, cwtInvalid("parseToOCSF.mappingVersion is not supported when ocsfVersion is V1.1")
-		}
-	}
-	return nil, &cwtConfigError{
-		Code:    "InvalidOperationException",
-		Message: "The parseToOCSF processor is not supported: its OCSF mappings are not available.",
-	}
-}
-
 // cwGroupTransformer is the transformer that applies to group: its own, or
 // else the account-level transformer policy whose selection admits it, with
 // the metric dimensions each publishes under.

@@ -1839,14 +1839,45 @@ fails once the row closes or the operation is served.
   `cloudwatch_logs_transformer_test.go` runs as input-to-output vectors: grok
   matches its whole source with literal text between the documented patterns
   only, `moveKeys` moves a key into a target that is an object,
-  `dateTimeConverter` reads `java.time` patterns with English and German names,
   and the transformed event keeps its keys in the order the processors wrote
-  them. `parseToOCSF` answers `InvalidOperationException`, because the guide
-  does not publish its OCSF mappings. The guide's `dateTimeConverter` example
+  them. The guide's `dateTimeConverter` example
   output (`1998-12-05T17:00:00 MEZ` for 11:00 Berlin time converted to New
   York) contradicts its own zones, so the test asserts the converted
   instant instead, and the documented default target format, missing its
   closing quote, became `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`.
+- **`dateTimeConverter` is Java SE 17's `DateTimeFormatter`.** The guide links
+  Java's pattern page and names Java's zone IDs and available locales, so the
+  converter ports `DateTimeFormatterBuilder`'s printer-parsers (adjacent value
+  parsing, optional sections, padding, every pattern letter), `Parsed`'s SMART
+  resolver and `WeekFields`, from the JDK 17 sources vendored beside the
+  specifications. Its locale data is what Java SE 17 ships: CLDR 39's
+  resolved names for every CLDR locale, the root locale's month names the
+  JDK's converter replaces with the US short names, week data by region with
+  the US standing in for a locale without one, day period rules, and time zone
+  names from CLDR's zone and metazone entries with the JDK's COMPAT names
+  filling the slots CLDR leaves empty, which is how `America/Sao_Paulo` prints
+  `BRT`. `scripts/fetch-cloudwatch-logs-transformer-sources.sh` vendors the
+  sources and `scripts/gen-cloudwatch-logs-cldr.go` interns their strings into
+  one pool; the zone and COMPAT names ship as text the simulator indexes on
+  first use, because map literals of that size compile slowly. Zone rules come
+  from Go's time zone database, as a serviced Java 17 runtime carries current
+  tzdata, while CLDR stays at 39, which Java 17 updates never move.
+- **`parseToOCSF` follows Amazon Security Lake's mapping dossiers.** The
+  guide's event sources are the five Security Lake publishes OCSF mappings for
+  in ocsf/examples (`mappings/markdown/AWS/v1.1.0` and `v1.5.0`), and the
+  guide's `ocsfVersion` values name those directories. A generator reads each
+  dossier's constants, Mapping and Conditional Mapping tables and the OCSF
+  schema of its version (dictionary, classes, objects, profiles and includes);
+  the mapper types every value by the schema (ports and counts as integers,
+  timestamps as epoch milliseconds with a `_dt` datetime beside each as the
+  datetime profile adds, JSON attributes as strings), derives each activity,
+  action and disposition from the schema's enumerations, flattens every raw
+  field no row reads into `unmapped` the way the samples do (dotted keys, `[]`
+  for arrays, comma-joined values, nulls dropped) and lists the observables
+  each dossier names. `TestParseToOCSFMatchesDossierSamples` converts every
+  raw sample and compares each value its OCSF sample shows; where a sample
+  contradicts its dossier, the schema or another sample, the test names the
+  value and why. Only mapping version 1.5.0, the guide's current one, exists.
 - **Amazon CloudWatch Logs subscriptions and log groups.** Every ingestion
   path forwards, after the transformer, the events each of the log group's
   subscription filters matches (the transformed version when the filter sets

@@ -24,10 +24,9 @@
   `docs/so-you-want-to-build-a-cloud.md` into a presentation. Keep its gap list
   in step with `PLAN.md` M3 and its LocalStack and Floci tables dated and
   sourced. Change a tutorial step only together with the test that runs it.
-- **CloudWatch Logs follow-ups.** Implement `parseToOCSF` and the rest of
-  `DateTimeFormatter` with Java SE 17's locale data (BUG-3936); have the
-  AWS services that log to CloudWatch Logs deliver their records, classified
-  under their data sources (BUG-3983); capture the
+- **CloudWatch Logs follow-ups.** Capture the transformer choices no source
+  fixes (BUG-3936); have the AWS services that log to CloudWatch Logs deliver
+  their records, classified under their data sources (BUG-3983); capture the
   anomaly detection, metric math, widget, Contributor Insights, scheduled
   query, import and data protection findings details no source states
   (BUG-3951, BUG-3952, BUG-3982); serve AWS usage metrics, Service Quotas and

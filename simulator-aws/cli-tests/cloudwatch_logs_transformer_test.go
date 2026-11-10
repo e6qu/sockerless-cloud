@@ -96,3 +96,51 @@ func TestLogsTransformerIngestionCLI(t *testing.T) {
 	errOut := runCLIExpectError(t, awsCLI("logs", "get-transformer", "--log-group-identifier", group))
 	assert.Contains(t, errOut, "ResourceNotFoundException")
 }
+
+func TestLogsParseToOCSFIngestionCLI(t *testing.T) {
+	t.Parallel()
+	group, stream := "/cli/transformer-ocsf", "s1"
+	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
+	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", group))
+	runCLI(t, awsCLI("logs", "create-log-stream", "--log-group-name", group, "--log-stream-name", stream))
+	runCLI(t, awsCLI("logs", "put-transformer", "--log-group-identifier", group,
+		"--transformer-config", `[{"parseToOCSF":{"eventSource":"Route53Resolver","ocsfVersion":"V1.5","mappingVersion":"1.5.0"}},`+
+			`{"dateTimeConverter":{"source":"time_dt","target":"local_time","matchPatterns":["uuuu-MM-dd'T'HH:mm:ss.SSSX"],"targetTimezone":"Europe/Berlin","targetFormat":"EEEE HH:mm zzzz","locale":"de"}}]`))
+
+	now := time.Now().UnixMilli()
+	query := `{\"version\":\"1.100000\",\"account_id\":\"123456789012\",\"region\":\"us-east-1\",\"vpc_id\":\"vpc-0123\",` +
+		`\"query_timestamp\":\"2022-10-13T21:02:36Z\",\"query_name\":\"example.com.\",\"query_type\":\"A\",\"query_class\":\"IN\",` +
+		`\"rcode\":\"NXDOMAIN\",\"answers\":[],\"srcaddr\":\"10.200.21.100\",\"srcport\":\"15083\",\"transport\":\"UDP\",` +
+		`\"srcids\":{\"instance\":\"i-0123\"},\"firewall_rule_action\":\"BLOCK\"}`
+	runCLI(t, awsCLI("logs", "put-log-events", "--log-group-name", group, "--log-stream-name", stream,
+		"--log-events", `[{"timestamp":`+strconv.FormatInt(now, 10)+`,"message":"`+query+`"}]`))
+
+	started := runCLI(t, awsCLI("logs", "start-query", "--log-group-name", group,
+		"--start-time", strconv.FormatInt(now/1000-60, 10), "--end-time", strconv.FormatInt(now/1000+60, 10),
+		"--query-string", "fields class_uid, rcode, rcode_id, disposition, src_endpoint.instance_uid, local_time", "--output", "json"))
+	var sq struct {
+		QueryID string `json:"queryId"`
+	}
+	parseJSON(t, started, &sq)
+	results := runCLI(t, awsCLI("logs", "get-query-results", "--query-id", sq.QueryID, "--output", "json"))
+	var qr struct {
+		Status  string `json:"status"`
+		Results [][]struct {
+			Field string `json:"field"`
+			Value string `json:"value"`
+		} `json:"results"`
+	}
+	parseJSON(t, results, &qr)
+	assert.Equal(t, "Complete", qr.Status)
+	require.Len(t, qr.Results, 1)
+	values := map[string]string{}
+	for _, f := range qr.Results[0] {
+		values[f.Field] = f.Value
+	}
+	assert.Equal(t, "4003", values["class_uid"], "a Route 53 Resolver query is a DNS Activity event")
+	assert.Equal(t, "NXDomain", values["rcode"])
+	assert.Equal(t, "3", values["rcode_id"])
+	assert.Equal(t, "Blocked", values["disposition"])
+	assert.Equal(t, "i-0123", values["src_endpoint.instance_uid"])
+	assert.Equal(t, "Donnerstag 23:02 Mitteleuropäische Sommerzeit", values["local_time"])
+}
