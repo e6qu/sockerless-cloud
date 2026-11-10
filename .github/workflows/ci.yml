@@ -1151,7 +1151,7 @@ jobs:
       matrix:
         include:
           - suite: edge-routing
-            run: '^Test(ACM|Amplify|APIGateway|ApplicationAutoScaling|AutoScaling|Batch|Budgets|PrivateCA)'
+            run: '^Test(ACM|Amplify|APIGateway|ApplicationAutoScaling|AutoScaling|Batch|Budgets|PrivateCA|ServiceQuotas)'
             timeout: 1200s
             timeout_minutes: 15
           # edge-delivery runs close to its 900s job: CloudFront and CloudTrail
@@ -1486,6 +1486,11 @@ jobs:
             tf_packages: "./rds-instance-settings"
             tf_timeout: 720s
             timeout_minutes: 15
+          - suite: aws Amazon RDS Performance Insights
+            cloud: aws
+            tf_packages: "./rds-performance-insights"
+            tf_timeout: 720s
+            timeout_minutes: 15
           - suite: aws Amazon RDS snapshot
             cloud: aws
             tf_packages: "./rds-snapshot ./rds-cluster-snapshot"
@@ -1549,7 +1554,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws AWS Lambda concurrency
             cloud: aws
-            tf_packages: "./lambda-concurrency ./cloudwatch-anomaly"
+            tf_packages: "./lambda-concurrency ./cloudwatch-anomaly ./servicequotas"
             timeout_minutes: 12
           - suite: aws Amazon CloudWatch composite alarm
             cloud: aws

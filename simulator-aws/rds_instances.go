@@ -309,6 +309,10 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	if value := r.FormValue("DeletionProtection"); value != "" {
 		instance.DeletionProtection = strings.EqualFold(value, "true")
 	}
+	if code, message := rdsRequestedPerformanceInsights(r, &instance); code != "" {
+		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
 	retentionBefore := instance.BackupRetentionPeriod
 	if r.FormValue("BackupRetentionPeriod") != "" || r.FormValue("PreferredBackupWindow") != "" {
 		retention, window, problem := rdsInstanceBackupSettings(r, instance.BackupRetentionPeriod, instance.PreferredBackupWindow)

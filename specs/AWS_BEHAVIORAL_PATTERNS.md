@@ -38,6 +38,8 @@ Allowed classifications:
 | `route53-health` | background-evaluator | `simulator-aws/route53_health.go` | `simulator-aws/sdk-tests/route53_dns_test.go` |
 | `cloudwatch-logs-metric-filter` | dispatch | `simulator-aws/cloudwatch_logs_ops.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
 | `cloudwatch-anomaly-model` | background-evaluator | `simulator-aws/cloudwatch_anomaly_model.go` | `simulator-aws/sdk-tests/cloudwatch_anomaly_test.go` |
+| `aws-usage-metrics` | background-evaluator | `simulator-aws/aws_usage_metrics.go` | `simulator-aws/sdk-tests/servicequotas_test.go` |
+| `rds-performance-insights` | background-evaluator | `simulator-aws/rds_performance_insights.go` | `simulator-aws/sdk-tests/rds_performance_insights_test.go` |
 | `cloudwatch-logs-anomaly` | background-evaluator | `simulator-aws/cloudwatch_logs_anomaly.go` | `simulator-aws/sdk-tests/cloudwatch_logs_anomaly_test.go` |
 | `cloudwatch-logs-scheduled-runs` | background-evaluator | `simulator-aws/cloudwatch_logs_scheduled_runs.go` | `simulator-aws/sdk-tests/cloudwatch_logs_anomaly_test.go` |
 | `cloudwatch-logs-import` | background-evaluator | `simulator-aws/cloudwatch_logs_import.go` | `simulator-aws/sdk-tests/cloudwatch_logs_anomaly_test.go` |

@@ -350,6 +350,7 @@ func registerLambda(srv *sim.Server) {
 	lambdaESMLogger = srv.Logger()
 	lambdaBackgroundServer = srv
 	lambdaEnvironments.reset()
+	sqOnQuotaChange("lambda", lambdaConcurrencyQuotaCode, lambdaEnvironments.resizeAccount)
 	srv.StartBackground("AWS Lambda execution environment shutdown", func(ctx context.Context) {
 		<-ctx.Done()
 		lambdaEnvironments.retireAll()

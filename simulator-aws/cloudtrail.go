@@ -851,12 +851,16 @@ func cloudTrailRecordAPICall(srv *sim.Server, r *http.Request, reqBody []byte, s
 	if eventName == "" {
 		return
 	}
+	source, ok := awsEventSource(r)
+	errorCode, errorMessage := cloudTrailErrorFields(status, respHeaders, respBody)
+	if ok {
+		awsUsageRecordCall(source, eventName, errorCode, cloudTrailAccessKeyID(r) != "")
+	}
 	// CloudTrail does not log its own LookupEvents, which would grow the trail
 	// under a paginating reader.
 	if eventName == "LookupEvents" {
 		return
 	}
-	source, ok := awsEventSource(r)
 	if !ok {
 		// An unmapped event source is a gap in awsEventSourceByTargetPrefix or
 		// awsEventSourceByQueryVersion; log it rather than record a made-up source.
@@ -871,7 +875,6 @@ func cloudTrailRecordAPICall(srv *sim.Server, r *http.Request, reqBody []byte, s
 	if !cloudTrailShouldRecord(r, source, eventName) {
 		return
 	}
-	errorCode, errorMessage := cloudTrailErrorFields(status, respHeaders, respBody)
 	cloudTrailRecord(CloudTrailEvent{
 		EventName:    eventName,
 		EventSource:  source,
@@ -932,10 +935,11 @@ func cloudTrailRecordedRESTDynamic(eventName cloudTrailRESTEventNameFunc, source
 		if name == "" {
 			return
 		}
+		errorCode, errorMessage := cloudTrailErrorFields(rec.statusCode(), rec.Header(), rec.body.Bytes())
+		awsUsageRecordCall(source, name, errorCode, cloudTrailAccessKeyID(r) != "")
 		if !cloudTrailShouldRecord(r, source, name) {
 			return
 		}
-		errorCode, errorMessage := cloudTrailErrorFields(rec.statusCode(), rec.Header(), rec.body.Bytes())
 		ev := CloudTrailEvent{
 			EventName:    name,
 			EventSource:  source,
@@ -1148,6 +1152,8 @@ var awsEventSourceByTargetPrefix = []struct{ prefix, source string }{
 	{"TrentService", "kms.amazonaws.com"},
 	{"secretsmanager", "secretsmanager.amazonaws.com"},
 	{"AWSCognitoIdentityProviderService", "cognito-idp.amazonaws.com"},
+	{"ServiceQuotasV20190624", "servicequotas.amazonaws.com"},
+	{"PerformanceInsightsv20180227", "pi.amazonaws.com"},
 }
 
 // The SDK sends a Version unique per query-protocol service.

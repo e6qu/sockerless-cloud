@@ -27,9 +27,9 @@ func (ev *cwMetricEvaluator) call(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 	case "LAMBDA":
 		return ev.lambdaDataSource(n, q)
 	case "SERVICE_QUOTA":
-		return cwMathValue{}, fmt.Errorf("SERVICE_QUOTA needs AWS usage metrics and Service Quotas, which this endpoint does not serve")
+		return ev.serviceQuota(n, q)
 	case "DB_PERF_INSIGHTS":
-		return cwMathValue{}, fmt.Errorf("DB_PERF_INSIGHTS needs Performance Insights, which this endpoint does not serve")
+		return ev.dbPerfInsights(n, q)
 	}
 	args := make([]cwMathValue, 0, len(n.args))
 	for _, a := range n.args {

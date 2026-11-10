@@ -114,6 +114,10 @@ var serviceConformanceCatalog = map[string][]string{
 	// AWS Budgets: all operations implemented (budgets, notifications,
 	// subscribers, and the budget-action family).
 	"AWSBudgetServiceGateway": {},
+	// Service Quotas and Amazon RDS Performance Insights: all operations
+	// implemented.
+	"ServiceQuotasV20190624":       {},
+	"PerformanceInsightsv20180227": {},
 	// SSM: all operations implemented (Parameter Store + documents + maintenance
 	// windows + patch baselines/groups + service settings + resource data sync +
 	// associations + automation + run command + ops-items + sessions + activations +

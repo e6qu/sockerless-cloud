@@ -8,6 +8,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 go run scripts/gen-cloudwatch-cbor-shapes.go
+go run scripts/gen-cloudwatch-cbor-shapes.go pi com.amazonaws.pi pi simulator-aws/pi_cbor_shapes_gen.go
+go run scripts/gen-aws-service-quotas.go
 go run scripts/gen-cloudwatch-logs-ocsf.go
 go run scripts/gen-cloudwatch-logs-cldr.go
 go run scripts/gen-aws-error-message-members.go

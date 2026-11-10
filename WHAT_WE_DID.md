@@ -2059,9 +2059,12 @@ fails once the row closes or the operation is served.
   vertical annotations, a right y-axis with its own scale and caption,
   stacked graphs, the pie view and, without `liveData`, only periods that
   ended a minute ago, and translucent fills blend rather than tint, as
-  premultiplied colours had made them. `SERVICE_QUOTA`, `DB_PERF_INSIGHTS`
-  and Metrics Insights tag filters wait on services the simulator lacks
-  (BUG-3990); the details no source states stay in BUG-3951.
+  premultiplied colours had made them. `SERVICE_QUOTA` answers the applied
+  value of the quota whose usage metric its argument is, and
+  `DB_PERF_INSIGHTS` reads Performance Insights at the periods and data point
+  counts the metric math table states. Metrics Insights `tag.` filters wait
+  on Observability Admin and AWS Resource Explorer (BUG-3990); the details no
+  source states stay in BUG-3951.
 - **Amazon CloudWatch refusals and records from public captures.** Where no
   AWS document states a detail, a verbatim public record of CloudWatch's
   answer to a real client counts as a capture, vendored by
@@ -2080,6 +2083,72 @@ fails once the row closes or the operation is served.
   the period of any single time series. `DescribeAnomalyDetectors` leaves
   out `MetricCharacteristics` for a detector created without it, as the
   snapshot records, where the simulator had answered an empty structure.
+- **`GetMetricData` paging and dynamic labels.** All three protocols return
+  at most `MaxDatapoints` points, 100,800 by default, in `ScanBy` order across
+  the results in request order, mark a result with points left
+  `PartialData`, and page by a `NextToken` bound to the request it pages,
+  which a different request refuses with `InvalidNextToken`. A request that
+  performs a math expression gets no `NextToken`, as `MetricDataResult`
+  states. A label expands the dynamic values the "Use dynamic labels" page
+  lists over the whole series, at most six of them and `${LABEL}` once,
+  with `LabelOptions.Timezone` moving the times; no page states how a value
+  is written, so a number is written in its shortest form, a time as
+  `2006-01-02 15:04:05 -0700` and a relative time in days, hours, minutes and
+  seconds. `metricsKey` sorts a metric's dimensions, as CloudWatch treats the
+  set as unordered.
+- **AWS usage metrics and Service Quotas.** CloudWatch counts each signed
+  call to a service the "AWS API usage metrics" table lists in `AWS/Usage`
+  `CallCount` with that table's `Service` value; CloudWatch and Amazon ECR
+  count only the operations their own pages list, Amazon ECR without a
+  `Class` dimension, and CloudWatch Logs also counts `CallCount`,
+  `ErrorCount` and `ThrottleCount` in `AWS/Logs`. The hook sits where
+  CloudTrail records a call, before the data-event filter. `ResourceCount`
+  follows each usage page: running On-Demand vCPUs by the Amazon EC2 classes
+  and the Fargate class, Amazon ECR's repositories and images per repository
+  under `Type` `RESOURCE`, and Firehose streams, published at each page's
+  cadence and at once when a call to the service changes a count. The quota
+  catalog is generated from 36 vendored General Reference pages and the
+  Amazon EC2 instance type quota page by `scripts/gen-aws-service-quotas.go`:
+  a row counts only when its Adjustable cell links the Service Quotas
+  console, the one place a page names a quota code, so non-adjustable quotas
+  stay out, and the name of a service is its page section's heading. A quota
+  names a usage metric where a usage page ties the two, and a request-rate
+  quota names its operation's `CallCount`. No source states when AWS approves
+  an increase, so Service Quotas approves every request it accepts and
+  applies the value; `CreateSupportCase` therefore always finds the request
+  past `PENDING`. A template needs an organization with all features, the
+  management account and trusted access, holds ten requests, and requests
+  its increases for every account the organization then creates. Automatic
+  Management keeps its configuration and accepts only `NotifyOnly`, as the
+  model says. A utilization report measures the last hour of each usage
+  metric against the applied value, per second for a rate quota. AWS
+  Lambda's concurrency limit, Amazon RDS's DB instance quota and
+  `DescribeAccountAttributes` maxima, Amazon VPC's security group checks and
+  IAM's `GetAccountSummary` quotas read the applied value, which moved Read
+  replicas per primary to the page's 15 and Managed policies per role to 20.
+- **Amazon RDS Performance Insights.** `EnablePerformanceInsights`,
+  `PerformanceInsightsRetentionPeriod` (7, a multiple of 31 up to 713, or
+  731), `PerformanceInsightsKMSKeyId` (the `aws/rds` key by default) and
+  `DatabaseInsightsMode` take effect at once on create and modify. Every
+  second the simulator samples each enabled instance's running engine:
+  `pg_stat_activity` on PostgreSQL, with `Type:Event` wait names and CPU for
+  a session waiting on nothing; the Performance Schema's current statements
+  and waits on MySQL, whose consumers Performance Insights turns on; and,
+  where the Performance Schema is off, the process list every five seconds,
+  as the User Guide's Performance Schema page describes. A statement's
+  digest replaces literals with `?` unless the engine gives one, and IDs are
+  hashes, with `pi-` IDs where the engine has none. Counters come once a
+  minute from the engine's statistics and the host's `/proc`, rates from
+  two readings. Load samples also go to `AWS/RDS` `DBLoad`, `DBLoadCPU` and
+  `DBLoadNonCPU`. Samples older than the retention go hourly. An analysis
+  report compares its window's load with the equally long period before it:
+  a higher load is a `HighDBLoad` insight supported by the `DominatingSQLs`
+  that carried it, with the recommendation text the model's example uses;
+  no source states the thresholds, so severity is high from ten times the
+  baseline and medium from twice. `AdditionalMetrics` SQL statistics and the
+  `db.blocking_*` groups are not collected. The SDK and the CLI speak
+  rpc-v2-cbor, which `awsCBORBridge` serves from the AWS JSON 1.1 handlers
+  with shapes `gen-cloudwatch-cbor-shapes.go` now generates per model.
 - **Amazon CloudWatch Logs anomaly detection, scheduled queries and
   imports.** A log anomaly detector moves INITIALIZING, TRAINING (two weeks of
   its group's events), ANALYZING on a one-second sweep, then analyzes once per

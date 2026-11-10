@@ -37,6 +37,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kms v1.62.5
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.114.3
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.62.7
+	github.com/aws/aws-sdk-go-v2/service/pi v1.46.8
 	github.com/aws/aws-sdk-go-v2/service/rds v1.132.2
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.70.9
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.9
@@ -44,6 +45,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.26.4
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.11
 	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.49.11
+	github.com/aws/aws-sdk-go-v2/service/servicequotas v1.43.11
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.52.6
 	github.com/aws/aws-sdk-go-v2/service/sns v1.47.10
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.11

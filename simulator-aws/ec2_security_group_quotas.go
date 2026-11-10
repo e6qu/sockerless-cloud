@@ -7,17 +7,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Check against the Amazon VPC quotas AWS documents: rules per security group
-// and security groups per network interface. Both are adjustable defaults, so
-// an account that raised them gets a stricter answer here than from AWS.
-// Only authorized AWS services may call the operation; the IAM path enforces
-// that.
-const (
-	// Inbound or outbound rules per security group.
-	ec2RulesPerSecurityGroupQuota = 60
-	// Security groups per network interface.
-	ec2SecurityGroupsPerInterfaceQuota = 5
-)
+// Check against the Amazon VPC quotas Service Quotas applies to the account:
+// Inbound or outbound rules per security group, and Security groups per
+// network interface. Only authorized AWS services may call the operation; the
+// IAM path enforces that.
+func ec2RulesPerSecurityGroupQuota() int { return sqQuotaLimit("vpc", "L-0EA8095F") }
+
+func ec2SecurityGroupsPerInterfaceQuota() int { return sqQuotaLimit("vpc", "L-2AFB9258") }
 
 // AWS counts one rule per source or destination, so a permission naming three
 // CIDRs is three rules.
@@ -37,7 +33,7 @@ func ec2SecurityGroupRuleCount(permissions []EC2IpPermission) int {
 func handleValidateSecurityGroupQuotasForInterface(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "SecurityGroupId")
 
-	valid := len(ids) <= ec2SecurityGroupsPerInterfaceQuota
+	valid := len(ids) <= ec2SecurityGroupsPerInterfaceQuota()
 	for _, id := range ids {
 		sg, ok := ec2SecurityGroups.Get(id)
 		if !ok {
@@ -45,8 +41,8 @@ func handleValidateSecurityGroupQuotasForInterface(w http.ResponseWriter, r *htt
 				fmt.Sprintf("The security group '%s' does not exist", id), http.StatusBadRequest)
 			return
 		}
-		if ec2SecurityGroupRuleCount(sg.IpPermissions) > ec2RulesPerSecurityGroupQuota ||
-			ec2SecurityGroupRuleCount(sg.IpPermissionsEgress) > ec2RulesPerSecurityGroupQuota {
+		if ec2SecurityGroupRuleCount(sg.IpPermissions) > ec2RulesPerSecurityGroupQuota() ||
+			ec2SecurityGroupRuleCount(sg.IpPermissionsEgress) > ec2RulesPerSecurityGroupQuota() {
 			valid = false
 		}
 	}

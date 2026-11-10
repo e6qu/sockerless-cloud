@@ -579,6 +579,7 @@ func orgCreateMemberAccount(w http.ResponseWriter, r *http.Request) (OrgCreateAc
 		AccountId:          acctID,
 	}
 	orgCreateStatuses.Put(status.Id, status)
+	sqApplyTemplate(acctID)
 	return status, true
 }
 

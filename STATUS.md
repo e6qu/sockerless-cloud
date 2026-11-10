@@ -146,9 +146,19 @@ Shared mechanisms, one package each:
   to the callers its model names, removed accounts run standalone, and
   invitations and the migration to all features run through handshakes
   their parties answer.
-  Amazon CloudWatch evaluates every metric math function but `SERVICE_QUOTA`
-  and `DB_PERF_INSIGHTS`, Metrics Insights queries, single-metric and metric
-  math anomaly detectors, and the metric widget's views and annotations.
+  Amazon CloudWatch evaluates every metric math function, `SERVICE_QUOTA`
+  and `DB_PERF_INSIGHTS` included, Metrics Insights queries without resource
+  tags, single-metric and metric math anomaly detectors, and the metric
+  widget's views and annotations; `GetMetricData` pages by `MaxDatapoints`
+  and expands dynamic labels. CloudWatch publishes `AWS/Usage` metrics:
+  `CallCount` for the services the "AWS API usage metrics" table lists, and
+  `ResourceCount` for Amazon EC2 and AWS Fargate vCPUs, Amazon ECR
+  repositories and images, and Amazon Data Firehose streams. Service Quotas
+  serves the quotas the vendored General Reference pages publish with a code;
+  an increase request is approved and applied, and AWS Lambda's concurrency,
+  Amazon RDS's DB instances and Amazon VPC's security group checks read the
+  applied value. Amazon RDS Performance Insights samples each enabled DB
+  instance's real engine every second and its counters every minute.
   Ingestion paths hold their documented payload limits: Amazon CloudWatch
   Logs `PutLogEvents` batches, Amazon Kinesis Data Streams records, Amazon
   Data Firehose records and batches, and AWS Lambda invocation requests and

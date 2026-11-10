@@ -122,8 +122,9 @@ func rdsIsDefaultGroupName(name string) bool {
 }
 
 // rdsAccountQuotas builds DescribeAccountAttributes' AccountQuotaList: the quota
-// names and default maxima the vendored model's example lists, in its order,
-// with used values counted from the simulator's RDS state.
+// names the vendored model's example lists, in its order, each with the
+// maximum Service Quotas applies where the quota has a code, and used values
+// counted from the simulator's RDS state.
 func rdsAccountQuotas(region string) []rdsAccountQuota {
 	instances := rdsInstances.List()
 	var allocatedStorage int64
@@ -172,35 +173,36 @@ func rdsAccountQuotas(region string) []rdsAccountQuota {
 		}
 	}
 
+	quota := func(code string) int64 { return int64(sqRegionQuotaLimit(region, "rds", code)) }
 	return []rdsAccountQuota{
-		{"DBInstances", int64(rdsDBInstancesUsage(region)), rdsDBInstancesQuota},
-		{"ReservedDBInstances", int64(len(rdsReservedInstances.List())), 40},
-		{"AllocatedStorage", allocatedStorage, 100000},
-		{"DBSecurityGroups", int64(len(rdsDBSecurityGroups.List())), 25},
+		{"DBInstances", int64(rdsDBInstancesUsage(region)), quota("L-7B6409FD")},
+		{"ReservedDBInstances", int64(len(rdsReservedInstances.List())), quota("L-78E853F4")},
+		{"AllocatedStorage", allocatedStorage, quota("L-7ADDB58A")},
+		{"DBSecurityGroups", int64(len(rdsDBSecurityGroups.List())), quota("L-732153D0")},
 		{"AuthorizationsPerDBSecurityGroup", rdsMaxOverAccount(rdsDBSecurityGroups.List(), func(g RDSDBSecurityGroup) int {
 			return len(g.IPRanges) + len(g.EC2SecurityGroups)
 		}), 20},
-		{"DBParameterGroups", paramGroups, 50},
-		{"ManualSnapshots", manualSnapshots, 100},
-		{"EventSubscriptions", int64(len(rdsEventSubscriptions.List())), 20},
-		{"DBSubnetGroups", int64(len(rdsSubnetGroups.List())), 50},
-		{"OptionGroups", optionGroups, 20},
+		{"DBParameterGroups", paramGroups, quota("L-DE55804A")},
+		{"ManualSnapshots", manualSnapshots, quota("L-272F1212")},
+		{"EventSubscriptions", int64(len(rdsEventSubscriptions.List())), quota("L-A59F4C87")},
+		{"DBSubnetGroups", int64(len(rdsSubnetGroups.List())), quota("L-48C6BF61")},
+		{"OptionGroups", optionGroups, quota("L-9FA33840")},
 		{"SubnetsPerDBSubnetGroup", rdsMaxOverAccount(rdsSubnetGroups.List(), func(g RDSSubnetGroup) int {
 			return len(g.SubnetIds)
 		}), 20},
 		{"ReadReplicasPerMaster", rdsMaxOverAccount(instances, func(i RDSInstance) int {
 			return len(i.ReadReplicas)
-		}), 5},
-		{"DBClusters", int64(len(rdsClusters.List())), 40},
-		{"DBClusterParameterGroups", clusterParamGroups, 50},
+		}), quota("L-5BC124EF")},
+		{"DBClusters", int64(len(rdsClusters.List())), quota("L-952B80B8")},
+		{"DBClusterParameterGroups", clusterParamGroups, quota("L-E4C808A8")},
 		{"DBClusterRoles", rdsMaxOverAccount(rdsClusterRoles.List(), func(s rdsRoleSet) int {
 			return len(s.Roles)
-		}), 5},
+		}), quota("L-E094F43D")},
 		{"DBInstanceRoles", rdsMaxOverAccount(rdsInstanceRoles.List(), func(s rdsRoleSet) int {
 			return len(s.Roles)
-		}), 5},
-		{"ManualClusterSnapshots", manualClusterSnapshots, 100},
-		{"CustomEndpointsPerDBCluster", highestCustomEndpoints, 5},
+		}), quota("L-DD2301CA")},
+		{"ManualClusterSnapshots", manualClusterSnapshots, quota("L-9B510759")},
+		{"CustomEndpointsPerDBCluster", highestCustomEndpoints, quota("L-9372BAB3")},
 	}
 }
 

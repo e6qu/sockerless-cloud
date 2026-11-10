@@ -435,15 +435,7 @@ func cwWriteCBOR(w http.ResponseWriter, v any) {
 // The Go SDK rejects a cbor response without `Smithy-Protocol: rpc-v2-cbor`
 // and reads the code from `__type` and the message from `message`.
 func cwWriteCBORError(w http.ResponseWriter, code, message string, status int) {
-	data, err := cwEncMode.Marshal(awsErrorBody("cloudwatch", code, message))
-	if err != nil {
-		AWSError(w, "InternalFailure", "Failed to encode error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/cbor")
-	w.Header().Set("Smithy-Protocol", "rpc-v2-cbor")
-	w.WriteHeader(status)
-	_, _ = w.Write(data)
+	awsCBORWriteError(w, "cloudwatch", code, message, status)
 }
 
 func cwWriteCBORErrorf(w http.ResponseWriter, code string, status int, format string, args ...any) {

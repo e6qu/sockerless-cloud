@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // cwQueryMetricDataQueries reads a query-protocol MetricDataQueries list.
@@ -98,35 +96,4 @@ func cwMetricDataQueriesXML(element string, queries []CWMetricDataQuery) string 
 	}
 	b.WriteString("</" + element + ">")
 	return b.String()
-}
-
-// cwMetricDataOutput is one MetricDataResult in protocol-neutral form, its
-// points ordered as ScanBy asks (newest first by default).
-type cwMetricDataOutput struct {
-	Id         string
-	Label      string
-	StatusCode string
-	Messages   []cwMessage
-	Timestamps []time.Time
-	Values     []float64
-}
-
-func cwGetMetricData(ctx context.Context, queries []CWMetricDataQuery, start, end time.Time, scanBy string) ([]cwMetricDataOutput, error) {
-	results, err := cwEvaluateMetricQueries(cwMathOptions{ctx: ctx}, queries, start.Unix(), end.Unix())
-	if err != nil {
-		return nil, err
-	}
-	out := make([]cwMetricDataOutput, 0, len(results))
-	for _, res := range results {
-		o := cwMetricDataOutput{Id: res.Id, Label: res.Label, StatusCode: res.Series.Status, Messages: res.Series.Messages, Timestamps: []time.Time{}, Values: []float64{}}
-		if o.StatusCode == "" {
-			o.StatusCode = "Complete"
-		}
-		for _, t := range res.Series.times(scanBy != "TimestampAscending") {
-			o.Timestamps = append(o.Timestamps, time.Unix(t, 0).UTC())
-			o.Values = append(o.Values, res.Series.Points[t])
-		}
-		out = append(out, o)
-	}
-	return out, nil
 }

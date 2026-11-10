@@ -25,8 +25,8 @@ flowchart LR
 
 | Cloud | What | Upstream | Fetched by | Pinned to |
 |---|---|---|---|---|
-| AWS | Smithy 2.0 JSON models, one per service (42) | `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2), the models the AWS SDKs are generated from | `scripts/fetch-aws-spec.sh <service> [<ref>]` | A commit SHA |
-| AWS | The Service Reference: each action's resource types, ARN formats and condition keys (43 services) | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>` | The document's content hash |
+| AWS | Smithy 2.0 JSON models, one per service (45) | `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2), the models the AWS SDKs are generated from | `scripts/fetch-aws-spec.sh <service> [<ref>]` | A commit SHA |
+| AWS | The Service Reference: each action's resource types, ARN formats and condition keys (45 services) | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>` | The document's content hash |
 | Google Cloud | API Discovery documents, one per API version (33) | `https://<api>.googleapis.com/$discovery/rest?version=<v>`, or the central `https://www.googleapis.com/discovery/v1/apis/<api>/<v>/rest` | `scripts/fetch-gcp-discovery.sh <host> <version>` | The document's `revision` |
 | Google Cloud | Protocol Buffers definitions of the gRPC services | [`googleapis/googleapis`](https://github.com/googleapis/googleapis), compiled into the `cloud.google.com/go` client libraries | The `…pb` packages the simulator imports for its gRPC listener | The client library version in `go.mod` |
 | Azure | OpenAPI 2.0 (Swagger) documents per resource provider and API version, for Azure Resource Manager and the data planes (137) | `specification/<service>/resource-manager/…` and `…/data-plane/…` in [`Azure/azure-rest-api-specs`](https://github.com/Azure/azure-rest-api-specs) | `scripts/fetch-azure-spec.sh <upstream-path> <local-name>` | A commit SHA |
@@ -78,7 +78,8 @@ otherwise get wrong by hand. After every re-vendor,
 | Generated file | From | What it gives the handlers |
 |---|---|---|
 | `simulator-aws/aws_error_members_gen.go` | Every vendored Smithy model | The member each error shape carries its message under (`message` or `Message`; the models disagree and each SDK reads exactly one), the service shape behind each `X-Amz-Target`, and each service's SigV4 signing name |
-| `simulator-aws/cloudwatch_cbor_shapes_gen.go` | The Amazon CloudWatch model | Each operation's shapes reduced to what Smithy RPC v2 CBOR and AWS JSON 1.0 encode differently, so one handler serves both protocols |
+| `simulator-aws/cloudwatch_cbor_shapes_gen.go`, `simulator-aws/pi_cbor_shapes_gen.go` | The Amazon CloudWatch and Amazon RDS Performance Insights models | Each operation's shapes reduced to what Smithy RPC v2 CBOR and AWS JSON encode differently, so one handler serves both protocols |
+| `simulator-aws/servicequotas_catalog_gen.go` | The vendored "endpoints and quotas" pages of the AWS General Reference and the Amazon EC2 instance type quota page | Each quota those pages publish with a Service Quotas code, for the services the simulator serves: its name, default per Region, unit, period and description |
 | `simulator-aws/stepfunctions_rest_integrations_gen.go` | The models' HTTP traits | The REST routing table for AWS Step Functions' AWS SDK integrations, which the IAM gate also uses to name a REST request's operation |
 | `simulator-aws/iam_resource_types_gen.go` | The Service Reference | The resource types and ARN formats each action authorizes against, which the Smithy models don't carry |
 | `simulator-aws/cloudwatch_logs_transformer_ocsf_gen.go` | The OCSF 1.1.0 and 1.5.0 schemas and Amazon Security Lake's mapping dossiers in `ocsf/examples` | The classes, enumerations and attribute types the CloudWatch Logs `parseToOCSF` processor writes, and each dossier's constant, direct and conditional mappings |

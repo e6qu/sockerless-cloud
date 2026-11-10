@@ -146,6 +146,14 @@ var (
 // of them, and one still lacking after provisioning fails the suite. Add a row
 // whenever a test drives a newly launched operation.
 var requiredAWSCLIOperations = [][2]string{
+	{"service-quotas", "start-auto-management"},
+	{"service-quotas", "get-auto-management-configuration"},
+	{"service-quotas", "update-auto-management"},
+	{"service-quotas", "stop-auto-management"},
+	{"service-quotas", "start-quota-utilization-report"},
+	{"service-quotas", "get-quota-utilization-report"},
+	{"service-quotas", "create-support-case"},
+	{"pi", "list-performance-analysis-report-recommendations"},
 	{"kinesis", "update-stream-record-distribution-strategy"},
 	{"cloudwatch", "create-resource-metrics-configuration"},
 	{"cloudwatch", "get-resource-metrics-configuration"},

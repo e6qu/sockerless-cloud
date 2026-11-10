@@ -51,6 +51,12 @@ type RDSInstance struct {
 	BackendMasterUserSecret         []byte
 	EnableIAMDatabaseAuthentication bool
 	DeletionProtection              bool
+	// The Performance Insights settings: on or off, the days its data is kept,
+	// the KMS key that encrypts it, and the Database Insights mode.
+	PerformanceInsightsEnabled         bool   `json:",omitempty"`
+	PerformanceInsightsRetentionPeriod int    `json:",omitempty"`
+	PerformanceInsightsKMSKeyId        string `json:",omitempty"`
+	DatabaseInsightsMode               string `json:",omitempty"`
 	// DBClusterIdentifier names the DB cluster the instance is a member of.
 	DBClusterIdentifier   string
 	BackupRetentionPeriod int

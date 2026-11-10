@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -92,6 +93,11 @@ type getMetricDataRequest struct {
 	EndTime           time.Time           `cbor:"EndTime"`
 	ScanBy            string              `cbor:"ScanBy"`
 	MetricDataQueries []CWMetricDataQuery `cbor:"MetricDataQueries"`
+	MaxDatapoints     int                 `cbor:"MaxDatapoints"`
+	NextToken         string              `cbor:"NextToken"`
+	LabelOptions      struct {
+		Timezone string `cbor:"Timezone"`
+	} `cbor:"LabelOptions"`
 }
 
 type metricDataResult struct {
@@ -119,20 +125,27 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "InvalidParameterValue", "Invalid CBOR request", http.StatusBadRequest)
 		return
 	}
-	outputs, err := cwGetMetricData(sim.LifetimeContext(r.Context()), req.MetricDataQueries, req.StartTime, req.EndTime, req.ScanBy)
-	if err != nil {
-		cwWriteCBORError(w, "ValidationError", err.Error(), http.StatusBadRequest)
+	page, failure := cwGetMetricData(sim.LifetimeContext(r.Context()), cwGetMetricDataInput{
+		Queries: req.MetricDataQueries, Start: req.StartTime, End: req.EndTime, ScanBy: req.ScanBy,
+		MaxDatapoints: req.MaxDatapoints, NextToken: req.NextToken, Timezone: req.LabelOptions.Timezone,
+	})
+	if failure != nil {
+		cwWriteCBORError(w, failure.code, failure.message, http.StatusBadRequest)
 		return
 	}
-	results := make([]metricDataResult, 0, len(outputs))
-	for _, o := range outputs {
+	results := make([]metricDataResult, 0, len(page.Results))
+	for _, o := range page.Results {
 		res := metricDataResult{Id: o.Id, Label: o.Label, StatusCode: o.StatusCode, Values: o.Values, Timestamps: o.Timestamps}
 		for _, m := range o.Messages {
 			res.Messages = append(res.Messages, cborMetricMessage(m))
 		}
 		results = append(results, res)
 	}
-	data, err := cwEncMode.Marshal(map[string]any{"MetricDataResults": results})
+	answer := map[string]any{"MetricDataResults": results}
+	if page.NextToken != "" {
+		answer["NextToken"] = page.NextToken
+	}
+	data, err := cwEncMode.Marshal(answer)
 	if err != nil {
 		cwWriteCBORError(w, "InternalFailure", "Failed to encode response", http.StatusInternalServerError)
 		return
@@ -230,9 +243,13 @@ func handleCWPutMetricData(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+// metricsKey identifies a metric by its namespace, name and dimension set; the
+// set is unordered, as CloudWatch treats it.
 func metricsKey(namespace, metricName string, dims []CWDimension) string {
 	key := namespace + "/" + metricName
-	for _, d := range dims {
+	sorted := append([]CWDimension(nil), dims...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	for _, d := range sorted {
 		key += fmt.Sprintf("/%s=%s", d.Name, d.Value)
 	}
 	return key

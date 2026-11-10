@@ -54,10 +54,12 @@ lives.
 | AWS Lambda | [`aws-lambda`](SIM_SURFACE_TABLES/aws-lambda.md) | [`aws-lambda`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS Organizations | [`aws-organizations`](SIM_SURFACE_TABLES/aws-organizations.md) | [`aws-organizations`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon Relational Database Service (RDS) | [`aws-rds`](SIM_SURFACE_TABLES/aws-rds.md) | [`aws-rds`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon RDS Performance Insights | [`aws-pi`](SIM_SURFACE_TABLES/aws-pi.md) | [`aws-pi`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon Route 53 | [`aws-route53`](SIM_SURFACE_TABLES/aws-route53.md) | [`aws-route53`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon Simple Storage Service (S3) bucket subresources | [`aws-s3-bucket-subresources`](SIM_SURFACE_TABLES/aws-s3-bucket-subresources.md) | [`aws-s3-bucket-subresources`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon S3 multipart upload | [`aws-s3-multipart`](SIM_SURFACE_TABLES/aws-s3-multipart.md) | [`aws-s3-multipart`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon Simple Storage Service (S3) | [`aws-s3`](SIM_SURFACE_TABLES/aws-s3.md) | [`aws-s3`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Service Quotas | [`aws-servicequotas`](SIM_SURFACE_TABLES/aws-servicequotas.md) | [`aws-servicequotas`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon S3 Object Lambda | [`aws-s3_object_lambda`](SIM_SURFACE_TABLES/aws-s3_object_lambda.md) | [`aws-s3_object_lambda`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon S3 Access Grants | [`aws-s3control_access_grants`](SIM_SURFACE_TABLES/aws-s3control_access_grants.md) | [`aws-s3control_access_grants`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon S3 Batch Operations | [`aws-s3control_jobs`](SIM_SURFACE_TABLES/aws-s3control_jobs.md) | [`aws-s3control_jobs`](SIM_TEST_COVERAGE_MATRIX.md) |

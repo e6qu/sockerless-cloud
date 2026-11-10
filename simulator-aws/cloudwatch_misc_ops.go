@@ -85,16 +85,25 @@ func handleCWJSONGetMetricData(w http.ResponseWriter, r *http.Request) {
 		StartTime         float64             `json:"StartTime"`
 		EndTime           float64             `json:"EndTime"`
 		ScanBy            string              `json:"ScanBy"`
+		MaxDatapoints     int                 `json:"MaxDatapoints"`
+		NextToken         string              `json:"NextToken"`
+		LabelOptions      struct {
+			Timezone string `json:"Timezone"`
+		} `json:"LabelOptions"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
-	outputs, err := cwGetMetricData(sim.LifetimeContext(r.Context()), req.MetricDataQueries, time.Unix(int64(req.StartTime), 0), time.Unix(int64(req.EndTime), 0), req.ScanBy)
-	if err != nil {
-		AWSError(w, "ValidationError", err.Error(), http.StatusBadRequest)
+	page, failure := cwGetMetricData(sim.LifetimeContext(r.Context()), cwGetMetricDataInput{
+		Queries: req.MetricDataQueries, Start: time.Unix(int64(req.StartTime), 0), End: time.Unix(int64(req.EndTime), 0),
+		ScanBy: req.ScanBy, MaxDatapoints: req.MaxDatapoints, NextToken: req.NextToken, Timezone: req.LabelOptions.Timezone,
+	})
+	if failure != nil {
+		AWSError(w, failure.code, failure.message, http.StatusBadRequest)
 		return
 	}
+	outputs := page.Results
 	results := make([]map[string]any, 0, len(outputs))
 	for _, o := range outputs {
 		// Values are Doubles: render a decimal point so the awsJson deserializer
@@ -120,7 +129,11 @@ func handleCWJSONGetMetricData(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, res)
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"MetricDataResults": results})
+	answer := map[string]any{"MetricDataResults": results}
+	if page.NextToken != "" {
+		answer["NextToken"] = page.NextToken
+	}
+	sim.WriteJSON(w, http.StatusOK, answer)
 }
 
 func handleCWJSONPutAlarmMuteRule(w http.ResponseWriter, r *http.Request) {
@@ -508,11 +521,24 @@ func handleCWQueryGetMetricData(w http.ResponseWriter, r *http.Request) {
 	}
 	start := time.Unix(int64(cwParseTimeUnix(r.FormValue("StartTime"))), 0)
 	end := time.Unix(int64(cwParseTimeUnix(r.FormValue("EndTime"))), 0)
-	outputs, err := cwGetMetricData(sim.LifetimeContext(r.Context()), queries, start, end, r.FormValue("ScanBy"))
-	if err != nil {
-		cwQueryError(w, "ValidationError", err.Error())
+	maxDatapoints := 0
+	if v := r.FormValue("MaxDatapoints"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			cwQueryError(w, "InvalidParameterValue", "The parameter MaxDatapoints must be an integer.")
+			return
+		}
+		maxDatapoints = n
+	}
+	page, failure := cwGetMetricData(sim.LifetimeContext(r.Context()), cwGetMetricDataInput{
+		Queries: queries, Start: start, End: end, ScanBy: r.FormValue("ScanBy"), MaxDatapoints: maxDatapoints,
+		NextToken: r.FormValue("NextToken"), Timezone: r.FormValue("LabelOptions.Timezone"),
+	})
+	if failure != nil {
+		cwQueryError(w, failure.code, failure.message)
 		return
 	}
+	outputs := page.Results
 	var b []byte
 	b = append(b, []byte("<MetricDataResults>")...)
 	for _, o := range outputs {
@@ -540,6 +566,9 @@ func handleCWQueryGetMetricData(w http.ResponseWriter, r *http.Request) {
 		b = append(b, []byte("</Values></member>")...)
 	}
 	b = append(b, []byte("</MetricDataResults>")...)
+	if page.NextToken != "" {
+		b = cwQueryAppendf(b, "<NextToken>%s</NextToken>", xmlEscape(page.NextToken))
+	}
 	cwQueryResult(w, "GetMetricData", string(b))
 }
 

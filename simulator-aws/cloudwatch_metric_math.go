@@ -60,6 +60,10 @@ type cwMetricSeries struct {
 	Messages []cwMessage
 	Edge     string
 	Unit     string
+	// Metric and Stat name the stored metric a series reads, which a dynamic
+	// label's ${PROP(...)} values describe; a computed series has none.
+	Metric *CWMetricRef
+	Stat   string
 }
 
 func (s cwMetricSeries) times(descending bool) []int64 {
@@ -165,6 +169,11 @@ type cwMetricResult struct {
 	Id     string
 	Label  string
 	Series cwMetricSeries
+	// Template is the query's own Label, which may carry dynamic values, and
+	// DefaultLabel the label the series takes without one: ${LABEL}.
+	Template     string
+	DefaultLabel string
+	Expression   bool
 }
 
 type cwMetricMathError struct{ msg string }
@@ -192,7 +201,8 @@ func cwStatSeries(ref CWMetricRef, period int32, stat string, start, end int64) 
 	if period <= 0 {
 		period = 60
 	}
-	out := cwMetricSeries{Label: ref.MetricName, Period: period, Points: map[int64]float64{}}
+	metric := ref
+	out := cwMetricSeries{Label: ref.MetricName, Period: period, Points: map[int64]float64{}, Metric: &metric, Stat: stat}
 	data, _ := cwMetrics.Get(metricsKey(ref.Namespace, ref.MetricName, ref.Dimensions))
 	buckets := map[int64][]float64{}
 	p := int64(period)
@@ -281,7 +291,8 @@ func cwEvaluateMetricQueries(opts cwMathOptions, queries []CWMetricDataQuery, st
 			return nil, cwMathErrorf("Error in expression '%s': The return value of the expression must be TimeSeries or Array[TimeSeries]", q.Id)
 		}
 		for _, s := range v.series {
-			out = append(out, cwMetricResult{Id: q.Id, Label: cwResultLabel(q, v, s), Series: s})
+			out = append(out, cwMetricResult{Id: q.Id, Label: cwResultLabel(q, v, s), Series: s,
+				Template: q.Label, DefaultLabel: cwResultLabel(CWMetricDataQuery{}, v, s), Expression: q.Expression != ""})
 		}
 	}
 	return out, nil
