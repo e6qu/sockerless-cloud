@@ -98,11 +98,11 @@ var iamResourceExists = map[string]func(arn string) bool{
 			dest, exists := cwDestinations.Get(name)
 			return exists && dest.Arn == arn
 		}
-		group, ok := strings.CutPrefix(arn[strings.Index(arn, ":log-group:")+1:], "log-group:")
+		group, ok := cwLogGroupOfARN(arn)
 		if !ok {
 			return false
 		}
-		_, exists := cwLogGroups.Get(strings.TrimSuffix(group, ":*"))
+		_, exists := cwLogGroups.Get(group)
 		return exists
 	},
 }

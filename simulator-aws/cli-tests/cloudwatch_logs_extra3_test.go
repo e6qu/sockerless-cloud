@@ -286,12 +286,4 @@ func TestLogsStructureCLI(t *testing.T) {
 		}
 	}
 	assert.True(t, foundLG, "log group should appear in ListLogGroups")
-
-	aggLG := runCLI(t, awsCLI("logs", "list-aggregate-log-group-summaries",
-		"--group-by", "DATA_SOURCE_NAME_AND_TYPE", "--output", "json"))
-	var alg struct {
-		AggregateLogGroupSummaries []any `json:"aggregateLogGroupSummaries"`
-	}
-	parseJSON(t, aggLG, &alg)
-	assert.Empty(t, alg.AggregateLogGroupSummaries, "no aggregates without integrations")
 }

@@ -268,10 +268,4 @@ func TestLogs_ListLogGroupsOps(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "log group should appear in ListLogGroups")
-
-	agg, err := cw.ListAggregateLogGroupSummaries(ctx, &cloudwatchlogs.ListAggregateLogGroupSummariesInput{
-		GroupBy: cwlogtypes.ListAggregateLogGroupSummariesGroupByDataSourceNameAndType,
-	})
-	require.NoError(t, err)
-	assert.Empty(t, agg.AggregateLogGroupSummaries, "no data-source aggregates without integrations")
 }

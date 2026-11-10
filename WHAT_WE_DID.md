@@ -2088,6 +2088,22 @@ fails once the row closes or the operation is served.
   synchronous request over 6 MB, an asynchronous one over 1 MB and an
   `InvokeAsync` one over 256 KB with `RequestTooLargeException`, and turns a
   synchronous response over 6 MB into `Function.ResponseSizeTooLarge`.
+- **CloudWatch Logs resource policies and data sources.** The account's
+  CloudWatch Logs resource policies guard every log group and log stream:
+  the IAM gate reads them for any such ARN, through an index keyed on the
+  store's generation, and resolves a log-stream ARN to its group, so an AWS
+  service writing as its own principal (an Amazon EventBridge CloudWatch Logs
+  target, data protection findings as `delivery.logs.amazonaws.com`) is
+  refused unless a policy grants it, as the EventBridge user guide requires.
+  Each ingested event carries a data source: the name and type its log
+  group's `cw:datasource:name` and `cw:datasource:type` tags give, with
+  format `Custom`, else `Unknown` with format `Default`, as the data source
+  discovery guide defines them. Insights reads them as `@data_source_name`,
+  `@data_source_type` and `@data_format`; ingestion records each group's
+  schema per data source, which answers `GetLogFields` and
+  `ListAggregateLogGroupSummaries`; and an account-level field index policy
+  selecting a data source indexes that source's events alongside the
+  group's own policy.
 - **Test fidelity: Amazon SNS, AWS Systems Manager, Amazon RDS.** Amazon SNS
   confirms an HTTP or email subscription with an opaque random token that only
   the confirmation message carries, where it had been the subscription ARN

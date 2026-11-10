@@ -104,7 +104,10 @@ type CWLogEvent struct {
 	UnmaskedTransformed string `json:"unmaskedTransformed,omitempty"`
 	// IndexedFields holds the value of each field index the event matched
 	// when it was ingested.
-	IndexedFields map[string]string `json:"indexedFields,omitempty"`
+	IndexedFields  map[string]string `json:"indexedFields,omitempty"`
+	DataSourceName string            `json:"dataSourceName,omitempty"`
+	DataSourceType string            `json:"dataSourceType,omitempty"`
+	DataFormat     string            `json:"dataFormat,omitempty"`
 }
 
 func (e CWLogEvent) processedMessage() string {
@@ -227,6 +230,7 @@ func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)
 	groupName, stream, _ := strings.Cut(key, ":")
 	group, _ := cwLogGroups.Get(groupName)
 	cwAssignEventIDs(events)
+	source := cwClassifyIngested(group, events)
 	if group.standard() {
 		cwTransformIngested(groupName, stream, events)
 	}
@@ -243,6 +247,7 @@ func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)
 		items = append(items, logstore.Item[CWLogEvent]{Time: e.Timestamp, Value: e})
 	}
 	cwLogEvents.Append(key, time.Now(), items...)
+	cwDiscoverSchema(groupName, source, events)
 	if group.standard() {
 		cwLiveTailPublish(groupName, stream, events)
 		cwDeliverSubscriptions(groupName, stream, events)
@@ -374,6 +379,7 @@ func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	registerCloudWatchLogsSubscriptions(r, srv)
 	registerCloudWatchLogsExtra2(r, srv)
 	registerCloudWatchLogsFieldIndexes(srv)
+	registerCloudWatchLogsDataSources(srv)
 	if err := cwMigrateIndexPolicyKeys(srv.DB()); err != nil {
 		log.Fatalf("cloudwatch logs: %v", err)
 	}
@@ -619,6 +625,7 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 	cwDataProtection.Delete(req.LogGroupName)
 	cwIndexPolicies.Delete(req.LogGroupName)
 	cwDeleteFieldIndexes(req.LogGroupName)
+	cwForgetDataSources(req.LogGroupName)
 	for _, f := range cwGroupMetricFilters(req.LogGroupName) {
 		cwMetricFilters.Delete(cwFilterKey(req.LogGroupName, f.FilterName))
 	}

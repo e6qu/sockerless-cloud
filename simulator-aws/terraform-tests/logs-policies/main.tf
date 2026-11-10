@@ -20,6 +20,7 @@ provider "aws" {
 
   endpoints {
     cloudwatchlogs = var.endpoint
+    events         = var.endpoint
     sts            = var.endpoint
   }
 }
@@ -105,6 +106,59 @@ resource "aws_cloudwatch_log_account_policy" "metric_extraction" {
   policy_type        = "METRIC_EXTRACTION_POLICY"
   policy_document    = jsonencode({ EmbeddedMetricFormat = { Status = "Disabled" } })
   selection_criteria = "LogGroupName IN [\"${aws_cloudwatch_log_group.app.name}\"]"
+}
+
+resource "aws_cloudwatch_log_group" "orders" {
+  name = "/tf/logs-policies/orders"
+  tags = {
+    "cw:datasource:name" = "tfapp"
+    "cw:datasource:type" = "orders"
+  }
+}
+
+resource "aws_cloudwatch_log_account_policy" "data_source_index" {
+  policy_name        = "tf-data-source-index"
+  policy_type        = "FIELD_INDEX_POLICY"
+  policy_document    = jsonencode({ Fields = ["orderId"] })
+  selection_criteria = "DataSourceName = \"tfapp\" AND DataSourceType = \"orders\""
+}
+
+resource "aws_cloudwatch_log_group" "events" {
+  name = "/aws/events/tf-logs-policies"
+}
+
+resource "aws_cloudwatch_event_rule" "to_logs" {
+  name          = "tf-logs-policies-to-logs"
+  event_pattern = jsonencode({ source = ["tf.logs-policies"] })
+}
+
+resource "aws_cloudwatch_log_resource_policy" "eventbridge" {
+  policy_name = "tf-eventbridge-to-logs"
+  policy_document = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = ["events.amazonaws.com", "delivery.logs.amazonaws.com"] }
+      Action    = ["logs:CreateLogStream", "logs:PutLogEvents"]
+      Resource  = "${aws_cloudwatch_log_group.events.arn}:*"
+      Condition = { ArnEquals = { "aws:SourceArn" = aws_cloudwatch_event_rule.to_logs.arn } }
+    }]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "logs" {
+  rule       = aws_cloudwatch_event_rule.to_logs.name
+  target_id  = "logs"
+  arn        = aws_cloudwatch_log_group.events.arn
+  depends_on = [aws_cloudwatch_log_resource_policy.eventbridge]
+}
+
+output "data_source_selection" {
+  value = aws_cloudwatch_log_account_policy.data_source_index.selection_criteria
+}
+
+output "log_group_target" {
+  value = aws_cloudwatch_event_target.logs.arn
 }
 
 output "data_protection_group" {

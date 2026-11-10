@@ -17,19 +17,19 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action Logs_20140328.CreateLogGroup` | ✓ `simulator-aws/cloudwatch.go:388::handleCWCreateLogGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.DescribeLogGroups` | ✓ `simulator-aws/cloudwatch.go:389::handleCWDescribeLogGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.DeleteLogGroup` | ✓ `simulator-aws/cloudwatch.go:390::handleCWDeleteLogGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.CreateLogStream` | ✓ `simulator-aws/cloudwatch.go:391::handleCWCreateLogStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.DescribeLogStreams` | ✓ `simulator-aws/cloudwatch.go:392::handleCWDescribeLogStreams` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.PutLogEvents` | ✓ `simulator-aws/cloudwatch.go:393::handleCWPutLogEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.GetLogEvents` | ✓ `simulator-aws/cloudwatch.go:394::handleCWGetLogEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.FilterLogEvents` | ✓ `simulator-aws/cloudwatch.go:395::handleCWFilterLogEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.PutRetentionPolicy` | ✓ `simulator-aws/cloudwatch.go:396::handleCWPutRetentionPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.ListTagsForResource` | ✓ `simulator-aws/cloudwatch.go:397::handleCWListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.TagResource` | ✓ `simulator-aws/cloudwatch.go:398::handleCWTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.AssociateKmsKey` | ✓ `simulator-aws/cloudwatch.go:399::handleCWAssociateKmsKey` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Logs_20140328.DisassociateKmsKey` | ✓ `simulator-aws/cloudwatch.go:400::handleCWDisassociateKmsKey` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.CreateLogGroup` | ✓ `simulator-aws/cloudwatch.go:394::handleCWCreateLogGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.DescribeLogGroups` | ✓ `simulator-aws/cloudwatch.go:395::handleCWDescribeLogGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.DeleteLogGroup` | ✓ `simulator-aws/cloudwatch.go:396::handleCWDeleteLogGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.CreateLogStream` | ✓ `simulator-aws/cloudwatch.go:397::handleCWCreateLogStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.DescribeLogStreams` | ✓ `simulator-aws/cloudwatch.go:398::handleCWDescribeLogStreams` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.PutLogEvents` | ✓ `simulator-aws/cloudwatch.go:399::handleCWPutLogEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.GetLogEvents` | ✓ `simulator-aws/cloudwatch.go:400::handleCWGetLogEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.FilterLogEvents` | ✓ `simulator-aws/cloudwatch.go:401::handleCWFilterLogEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.PutRetentionPolicy` | ✓ `simulator-aws/cloudwatch.go:402::handleCWPutRetentionPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.ListTagsForResource` | ✓ `simulator-aws/cloudwatch.go:403::handleCWListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.TagResource` | ✓ `simulator-aws/cloudwatch.go:404::handleCWTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.AssociateKmsKey` | ✓ `simulator-aws/cloudwatch.go:405::handleCWAssociateKmsKey` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Logs_20140328.DisassociateKmsKey` | ✓ `simulator-aws/cloudwatch.go:406::handleCWDisassociateKmsKey` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.EnableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:195::handleCWJSONEnableAlarmActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.DisableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:196::handleCWJSONDisableAlarmActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.SetAlarmState` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:197::handleCWJSONSetAlarmState` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

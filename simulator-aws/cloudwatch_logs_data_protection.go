@@ -29,10 +29,6 @@ const (
 	cwLogDeliveryResourcePolicy = "AWSLogDeliveryWrite20150319"
 )
 
-// cwLogDeliveryPolicies finds the resource policies that name the log
-// delivery service.
-var cwLogDeliveryPolicies sim.GenerationIndex[CWResourcePolicy]
-
 var (
 	cwCustomIdentifierName  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 	cwCustomIdentifierRegex = regexp.MustCompile(`^[A-Za-z0-9_#=@/;, '"^$?\[\]{}|\\*+.()-]*$`)
@@ -278,24 +274,10 @@ func cwLogDeliveryStreamArn(group string) string { return cwLogGroupArn(group) +
 // resource policies let delivery.logs.amazonaws.com create streams in group
 // and put events in them.
 func cwLogDeliveryAdmitted(group string) bool {
-	var docs []iamPolicyDoc
-	for _, p := range cwLogDeliveryPolicies.LookupAll(cwResourcePolicies, cwLogDeliveryService, func(p CWResourcePolicy) []string {
-		if strings.Contains(p.PolicyDocument, cwLogDeliveryService) {
-			return []string{cwLogDeliveryService}
-		}
-		return nil
-	}) {
-		if doc, err := parseIAMPolicy(p.PolicyDocument); err == nil {
-			docs = append(docs, doc)
-		}
-	}
-	if len(docs) == 0 {
-		return false
-	}
+	resource := cwLogStreamArn(group, cwFindingsStreamName(group))
 	src := cwLogDeliverySource()
-	resource := cwLogGroupArn(group) + ":log-stream:" + cwFindingsStreamName(group)
-	return iamEvalServiceInitiated(docs, "logs:CreateLogStream", resource, src) &&
-		iamEvalServiceInitiated(docs, "logs:PutLogEvents", resource, src)
+	return iamAuthorizeServiceDelivery(resource, "logs:CreateLogStream", src) &&
+		iamAuthorizeServiceDelivery(resource, "logs:PutLogEvents", src)
 }
 
 // cwGrantLogDelivery adds group to the AWSLogDeliveryWrite20150319 resource

@@ -150,7 +150,10 @@ Shared mechanisms, one package each:
   Logs `PutLogEvents` batches, Amazon Kinesis Data Streams records, Amazon
   Data Firehose records and batches, and AWS Lambda invocation requests and
   responses. CloudWatch Logs data protection, field index and metric
-  extraction policies take effect at ingestion.
+  extraction policies take effect at ingestion; ingested events carry the
+  data source their log group's tags name, and an AWS service writing to a
+  log group as its own principal is held to the CloudWatch Logs resource
+  policies.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three

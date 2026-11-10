@@ -128,8 +128,7 @@ func cwParseIndexPolicyDocument(doc string) (map[string]string, error) {
 // cwIndexPolicyApplying is the policy that indexes group's events: the
 // group's own, else the account-level policy whose selection, no criteria or
 // a log group name prefix, takes in the group. Account-level policies that
-// select a data source apply to the events of that source, which a log group
-// written through the CloudWatch Logs API does not carry.
+// select a data source apply on top, to the events of that source.
 func cwIndexPolicyApplying(group string) (CWIndexPolicy, bool) {
 	if p, ok := cwIndexPolicies.Get(group); ok {
 		return p, true
@@ -151,14 +150,42 @@ func cwIndexPolicyApplying(group string) (CWIndexPolicy, bool) {
 	return CWIndexPolicy{}, false
 }
 
-func cwIndexedFieldsOf(group string) map[string]string {
-	p, ok := cwIndexPolicyApplying(group)
-	if !ok {
-		return nil
+// cwIndexedFieldsOf is the custom fields indexed in group's events of
+// source: the log group-level selection's, and those of the account-level
+// policy that selects the data source.
+func cwIndexedFieldsOf(group string, source cwDataSource) map[string]string {
+	fields := map[string]string{}
+	if p, ok := cwIndexPolicyApplying(group); ok {
+		if parsed, err := cwParseIndexPolicyDocument(p.PolicyDocument); err == nil {
+			fields = parsed
+		}
 	}
-	fields, err := cwParseIndexPolicyDocument(p.PolicyDocument)
-	if err != nil {
-		return nil
+	for _, p := range cwAccountPoliciesOf(cwPolicyFieldIndex) {
+		selected, ok := cwPolicyDataSource(p.PolicyType, p.SelectionCriteria)
+		if !ok || selected.key() != source.key() {
+			continue
+		}
+		parsed, err := cwParseIndexPolicyDocument(p.PolicyDocument)
+		if err != nil {
+			continue
+		}
+		for name, typ := range parsed {
+			if _, dup := fields[name]; !dup {
+				fields[name] = typ
+			}
+		}
+	}
+	return fields
+}
+
+// cwActiveIndexedFields is the custom fields indexed in any of group's events,
+// whichever data source they carry.
+func cwActiveIndexedFields(group string) map[string]string {
+	fields := cwIndexedFieldsOf(group, cwDataSourceOf(CWLogGroup{}))
+	for _, row := range cwDataSourceSchemas.ListPrefix(group + "\x00") {
+		for name, typ := range cwIndexedFieldsOf(group, row.Item.source()) {
+			fields[name] = typ
+		}
 	}
 	return fields
 }
@@ -214,7 +241,10 @@ func cwIndexIngested(group, stream string, events []CWLogEvent) {
 	if group == "" {
 		return
 	}
-	custom := cwIndexedFieldsOf(group)
+	custom := map[string]string{}
+	if len(events) > 0 {
+		custom = cwIndexedFieldsOf(group, events[0].dataSource())
+	}
 	now := time.Now()
 	type seen struct {
 		category, typ string
@@ -239,6 +269,8 @@ func cwIndexIngested(group, stream string, events []CWLogEvent) {
 			"@source.log":    group,
 			"@ingestionTime": strconv.FormatInt(e.IngestionTime, 10),
 		}
+		source := e.dataSource()
+		system["@data_source_name"], system["@data_source_type"], system["@data_format"] = source.Name, source.Type, source.Format
 		lookup := func(field string) (string, bool) {
 			if v, ok := system[field]; ok {
 				return v, true
@@ -439,7 +471,7 @@ func handleCWDescribeFieldIndexes(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		custom := cwIndexedFieldsOf(name)
+		custom := cwActiveIndexedFields(name)
 		rows := cwFieldIndexStates.ListPrefix(name + "\x00")
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Item.FieldIndexName < rows[j].Item.FieldIndexName })
 		for _, row := range rows {

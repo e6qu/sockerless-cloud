@@ -160,6 +160,25 @@ func cwPolicyPrefixes(policyType, criteria string) []string {
 	return sel.values
 }
 
+// cwPolicyDataSource returns the data source a field index policy selects
+// with DataSourceName AND DataSourceType.
+func cwPolicyDataSource(policyType, criteria string) (cwDataSource, bool) {
+	sel, err := cwParsePolicySelection(policyType, criteria)
+	if err != nil || sel == nil {
+		return cwDataSource{}, false
+	}
+	var ds cwDataSource
+	for _, c := range sel.conditions() {
+		switch {
+		case c.field == "DataSourceName" && len(c.values) == 1:
+			ds.Name = c.values[0]
+		case c.field == "DataSourceType" && len(c.values) == 1:
+			ds.Type = c.values[0]
+		}
+	}
+	return ds, ds.Name != "" && ds.Type != ""
+}
+
 type cwSubscriptionPolicyDocument struct {
 	DestinationArn string `json:"DestinationArn"`
 	RoleArn        string `json:"RoleArn"`
@@ -493,7 +512,9 @@ func handleCWPutAccountPolicy(w http.ResponseWriter, r *http.Request) {
 					"The selection criteria overlap with field index policy %s", p.PolicyName)
 				return
 			}
-			if mine == nil && p.SelectionCriteria == req.SelectionCriteria {
+			mineSource, _ := cwPolicyDataSource(req.PolicyType, req.SelectionCriteria)
+			theirSource, _ := cwPolicyDataSource(p.PolicyType, p.SelectionCriteria)
+			if mine == nil && mineSource.key() == theirSource.key() {
 				AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 					"Field index policy %s already uses this data source", p.PolicyName)
 				return

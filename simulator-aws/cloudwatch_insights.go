@@ -200,6 +200,8 @@ func cwGatherRecords(groups []string, startSec, endSec int64) ([]cwInsightsRecor
 				"@ingestionTime": time.UnixMilli(e.IngestionTime).UTC().Format("2006-01-02 15:04:05.000"),
 				"@__ts":          strconv.FormatInt(e.Timestamp, 10),
 			}
+			source := e.dataSource()
+			rec["@data_source_name"], rec["@data_source_type"], rec["@data_format"] = source.Name, source.Type, source.Format
 			if e.TransformationError != "" {
 				rec["@transformationError"] = e.TransformationError
 			}

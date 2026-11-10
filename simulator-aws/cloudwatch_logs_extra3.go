@@ -1107,19 +1107,3 @@ func handleCWListLogGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"logGroups": groups})
 }
-
-func handleCWListAggregateLogGroupSummaries(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupNamePattern string `json:"logGroupNamePattern"`
-		LogGroupClass       string `json:"logGroupClass"`
-		GroupBy             string `json:"groupBy"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	// Without data-source integrations there are no aggregate summaries.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"aggregateLogGroupSummaries": []map[string]any{},
-	})
-}
