@@ -59,7 +59,13 @@ RUN for attempt in 1 2 3 4 5 6 7 8; do timeout 50 go list -deps ./nodeagent ./gu
 RUN go build -trimpath -o /out/nodeagent ./nodeagent && go build -trimpath -o /out/guestinit ./guestinit
 
 FROM %[2]s
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl e2fsprogs iproute2 nftables && rm -rf /var/lib/apt/lists/*
+# A mirror that stops sending holds apt for good; bound each attempt.
+RUN set -eu; \
+    for attempt in 1 2 3 4 5 6; do \
+      timeout 180 sh -c 'apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ca-certificates curl e2fsprogs iproute2 nftables' && break; \
+      [ "$attempt" = 6 ] && exit 1; sleep 10; \
+    done; \
+    rm -rf /var/lib/apt/lists/*
 RUN set -eu; \
     curl -fsSL --speed-limit 1024 --speed-time 30 --retry 12 --retry-delay 15 --retry-all-errors -o /tmp/fc.tgz https://github.com/firecracker-microvm/firecracker/releases/download/%[3]s/firecracker-%[3]s-%[4]s.tgz; \
     echo "%[5]s  /tmp/fc.tgz" | sha256sum -c -; \
@@ -203,8 +209,9 @@ func drainBuild(stream io.Reader) error {
 		} else if err != nil {
 			return fmt.Errorf("malformed build stream: %w", err)
 		}
-		if strings.TrimSpace(event.Stream) != "" {
-			last = strings.TrimSpace(event.Stream)
+		if line := strings.TrimSpace(event.Stream); line != "" {
+			last = line
+			fmt.Fprintf(os.Stderr, "[node-agent build] %s\n", line)
 		}
 		if msg := event.Error + event.ErrorDetail.Message; msg != "" {
 			return fmt.Errorf("%s (last output: %s)", msg, last)

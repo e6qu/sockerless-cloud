@@ -2700,6 +2700,10 @@ cached provider at all.
 The node agent's image build downloads Firecracker and its kernel with
 twelve retries fifteen seconds apart on any error, because GitHub's release
 host answered 504 past five quick retries and failed a cold build.
+A cold build once hung for a test's whole twelve minutes with nothing in the
+log to name the step. The build now prints each step's output, and its apt
+step, the one network step left without a bound, runs in attempts of three
+minutes with apt's 30-second acquire timeouts.
 The docs jobs restore the pre-commit hook environments from the Actions
 cache, keyed on `.pre-commit-config.yaml`: building shellcheck-py's
 downloads shellcheck from GitHub releases, which answered 504 and failed the
