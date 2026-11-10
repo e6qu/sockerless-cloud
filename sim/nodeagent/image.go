@@ -32,7 +32,7 @@ const (
 	firecrackerVersion = "v1.15.1"
 	kernelVersion      = "6.1.155"
 	goImage            = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18"
-	runtimeImage       = "mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852"
+	runtimeImage       = "mirror.gcr.io/library/alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
 )
 
 // The release archives and CI kernels Firecracker publishes, by architecture.
@@ -59,13 +59,9 @@ RUN for attempt in 1 2 3 4 5 6 7 8; do timeout 50 go list -deps ./nodeagent ./gu
 RUN go build -trimpath -o /out/nodeagent ./nodeagent && go build -trimpath -o /out/guestinit ./guestinit
 
 FROM %[2]s
-# A mirror that stops sending holds apt for good; bound each attempt.
-RUN set -eu; \
-    for attempt in 1 2 3 4 5 6; do \
-      timeout 180 sh -c 'apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ca-certificates curl e2fsprogs iproute2 nftables' && break; \
-      [ "$attempt" = 6 ] && exit 1; sleep 10; \
-    done; \
-    rm -rf /var/lib/apt/lists/*
+# Ubuntu's archive stalled cold builds on GitHub's runners; Alpine's CDN
+# serves the same tools, and each attempt is bounded.
+RUN for attempt in 1 2 3 4 5 6; do timeout 120 apk add --no-cache ca-certificates curl e2fsprogs e2fsprogs-extra iproute2 nftables tar && exit 0; sleep 10; done; exit 1
 RUN set -eu; \
     curl -fsSL --speed-limit 1024 --speed-time 30 --retry 12 --retry-delay 15 --retry-all-errors -o /tmp/fc.tgz https://github.com/firecracker-microvm/firecracker/releases/download/%[3]s/firecracker-%[3]s-%[4]s.tgz; \
     echo "%[5]s  /tmp/fc.tgz" | sha256sum -c -; \
