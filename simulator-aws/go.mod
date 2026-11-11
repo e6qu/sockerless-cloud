@@ -9,7 +9,7 @@ require (
 	github.com/cloudflare/circl v1.6.5
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/dlclark/regexp2 v1.12.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261110140248-04006bc8b098
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261111130144-0141083ad1db
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261110140248-04006bc8b098
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-git/go-git/v5 v5.19.3
@@ -92,7 +92,7 @@ require (
 	google.golang.org/grpc v1.85.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	modernc.org/libc v1.80.2 // indirect
+	modernc.org/libc v1.81.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	modernc.org/sqlite v1.62.0 // indirect

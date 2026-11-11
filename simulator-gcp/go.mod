@@ -14,13 +14,13 @@ require (
 	cloud.google.com/go/firestore v1.29.2
 	cloud.google.com/go/functions v1.27.1
 	cloud.google.com/go/iam v1.15.1
-	cloud.google.com/go/kms v1.36.1
+	cloud.google.com/go/kms v1.37.0
 	cloud.google.com/go/logging v1.21.1
 	cloud.google.com/go/longrunning v1.5.0
 	cloud.google.com/go/pubsub v1.52.0
 	cloud.google.com/go/redis v1.29.0
 	cloud.google.com/go/resourcemanager v1.18.1
-	cloud.google.com/go/run v1.24.1
+	cloud.google.com/go/run v1.25.0
 	cloud.google.com/go/scheduler v1.18.1
 	cloud.google.com/go/secretmanager v1.24.0
 	cloud.google.com/go/serviceusage v1.16.1
@@ -29,7 +29,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261110140248-04006bc8b098
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261111130144-0141083ad1db
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261110140248-04006bc8b098
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/hamba/avro/v2 v2.31.0
@@ -55,7 +55,7 @@ require (
 require (
 	cel.dev/expr v0.26.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	cloud.google.com/go/pubsub/v2 v2.8.1 // indirect
+	cloud.google.com/go/pubsub/v2 v2.9.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/andybalholm/brotli v1.3.0 // indirect
@@ -108,9 +108,10 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
+	golang.org/x/mod v0.43.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
-	modernc.org/libc v1.80.2 // indirect
+	modernc.org/libc v1.81.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
